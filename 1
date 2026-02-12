@@ -13,37 +13,79 @@ end
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ===== НАСТРОЙКИ (можно менять) =====
-local TEAM_CHECK = true          -- true = только враги, false = все кроме себя
-local AIM_KEY = Enum.UserInputType.MouseButton2  -- правая кнопка
-local ESP_COLOR = Color3.fromRGB(255, 255, 0)    -- жёлтый
+-- ===== ПРОВЕРКА ПОДДЕРЖКИ DRAWING =====
+local DrawingSupported = pcall(Drawing.new, "Circle")
 
--- ===== ESP: жёлтый круг на голове =====
+-- ===== УНИВЕРСАЛЬНОЕ УПРАВЛЕНИЕ МЫШЬЮ =====
+local function MoveMouse(deltaX, deltaY)
+    if mousemoverel then
+        mousemoverel(deltaX, deltaY)
+        return true
+    elseif syn and syn.input then
+        syn.input.MouseMove(deltaX, deltaY)
+        return true
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
+        return true
+    end
+    return false
+end
+
+-- ===== СЛУЧАЙНЫЕ ИМЕНА =====
+local function randomString(len)
+    local str = ""
+    for i = 1, len do
+        str = str .. string.char(math.random(65, 90))
+    end
+    return str
+end
+
+-- ===== НАСТРОЙКИ =====
+local Settings = {
+    ESP_Enabled = true,
+    Aimbot_Enabled = true,
+    TeamCheck = true,
+    FOV = 120,
+    FOV_Visible = true,
+}
+
+-- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
+local IsAiming = false
+local AimTarget = nil
+local MenuOpen = true
+local Dragging = false
+local DragStart, DragPos
 
+-- ===== ESP: ЖЁЛТЫЙ КРУГ НА ГОЛОВЕ =====
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
-    if not TEAM_CHECK then return true end
-    if not p.Team or not LocalPlayer.Team then return true end
-    return p.Team ~= LocalPlayer.Team
+    if Settings.TeamCheck then
+        if not p.Team or not LocalPlayer.Team then return true end
+        return p.Team ~= LocalPlayer.Team
+    else
+        return true
+    end
 end
 
 local function CreateESP(p)
+    if not Settings.ESP_Enabled then return end
     if not IsEnemy(p) then return end
+
     local char = p.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
     local hum = char:FindFirstChild("Humanoid")
     if not head or not hum or hum.Health <= 0 then return end
 
-    -- Удалить старый
+    -- Удаляем старый
     if ESP_Cache[p] then
         ESP_Cache[p]:Destroy()
         ESP_Cache[p] = nil
     end
 
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_" .. p.Name
+    billboard.Name = randomString(12)
     billboard.Adornee = head
     billboard.Size = UDim2.new(1.5, 0, 1.5, 0)
     billboard.StudsOffset = Vector3.new(0, 0.5, 0)
@@ -51,11 +93,18 @@ local function CreateESP(p)
     billboard.LightInfluence = 0
     billboard.Parent = CoreGui
 
+    if syn and syn.protect_gui then
+        syn.protect_gui(billboard)
+    elseif protect_gui then
+        protect_gui(billboard)
+    end
+
     local circle = Instance.new("ImageLabel")
+    circle.Name = randomString(8)
     circle.Size = UDim2.new(1, 0, 1, 0)
     circle.BackgroundTransparency = 1
     circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-    circle.ImageColor3 = ESP_COLOR
+    circle.ImageColor3 = Color3.fromRGB(255, 255, 0)
     circle.ImageTransparency = 0.3
     circle.ScaleType = Enum.ScaleType.Fit
     circle.Parent = billboard
@@ -70,32 +119,20 @@ local function RemoveESP(p)
     end
 end
 
--- События игроков
-local function onCharacterAdded(p)
-    if p == LocalPlayer then return end
-    task.wait(0.1)
-    CreateESP(p)
-end
-
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then CreateESP(p) end
-        p.CharacterAdded:Connect(onCharacterAdded)
-        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+local function RefreshAllESP()
+    for p, _ in pairs(ESP_Cache) do
+        RemoveESP(p)
+    end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            CreateESP(p)
+        end
     end
 end
 
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(onCharacterAdded)
-    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-end)
-
-Players.PlayerRemoving:Connect(RemoveESP)
-
--- ===== AIMBOT: мгновенное наведение на голову =====
+-- ===== AIMBOT (FOV, БЛИЖАЙШИЙ К ПРИЦЕЛУ) =====
 local function IsTeamMate(p)
-    if not TEAM_CHECK then return false end
+    if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
@@ -108,21 +145,25 @@ local function IsVisible(character)
     return hit and hit:IsDescendantOf(character)
 end
 
-local function GetClosestEnemy()
+local function GetClosestToMouse()
+    if not Settings.Aimbot_Enabled then return nil end
+
     local closest = nil
-    local closestDist = math.huge
-    local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
-    if not myHead then return nil end
+    local closestDist = Settings.FOV
+    local mousePos = UserInputService:GetMouseLocation()
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
             if not IsTeamMate(p) and IsVisible(p.Character) then
                 local head = p.Character:FindFirstChild("Head")
                 if head then
-                    local dist = (head.Position - myHead.Position).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closest = p
+                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = p
+                        end
                     end
                 end
             end
@@ -131,36 +172,49 @@ local function GetClosestEnemy()
     return closest
 end
 
--- Перемещение мыши
-local function MoveMouse(deltaX, deltaY)
-    if mousemoverel then
-        mousemoverel(deltaX, deltaY)
-    elseif syn and syn.input then
-        syn.input.MouseMove(deltaX, deltaY)
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
-    end
+-- ===== FOV КРУГ (DRAWING) =====
+local FOVCircle = DrawingSupported and Drawing.new("Circle")
+if FOVCircle then
+    FOVCircle.Thickness = 2
+    FOVCircle.NumSides = 64
+    FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+    FOVCircle.Transparency = 0.7
+    FOVCircle.Visible = false
+    FOVCircle.Radius = Settings.FOV
+    FOVCircle.Filled = false
 end
 
--- Управление клавишей
-local isAiming = false
+-- ===== УПРАВЛЕНИЕ КЛАВИШЕЙ =====
 UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.UserInputType == AIM_KEY then
-        isAiming = true
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == AIM_KEY then
-        isAiming = false
+    if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = true
     end
 end)
 
--- Главный цикл
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = false
+        AimTarget = nil
+    end
+end)
+
+-- ===== ГЛАВНЫЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
-    if isAiming then
-        local target = GetClosestEnemy()
-        if target and target.Character and target.Character:FindFirstChild("Head") then
-            local head = target.Character.Head
+    -- Обновление FOV круга
+    if DrawingSupported and Settings.FOV_Visible then
+        local mousePos = UserInputService:GetMouseLocation()
+        FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
+        FOVCircle.Radius = Settings.FOV
+        FOVCircle.Visible = true
+    elseif FOVCircle then
+        FOVCircle.Visible = false
+    end
+
+    -- Аимбот
+    if Settings.Aimbot_Enabled and IsAiming then
+        AimTarget = GetClosestToMouse()
+        if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
+            local head = AimTarget.Character.Head
             local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
                 local targetPos = Vector2.new(vector.X, vector.Y)
@@ -171,7 +225,244 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
+    else
+        AimTarget = nil
     end
 end)
 
-print("✅ ESP + Aimbot загружены. Удерживайте ПКМ для наведения на голову.")
+-- ===== СОБЫТИЯ ИГРОКОВ =====
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    task.wait(0.1)
+    CreateESP(p)
+end
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then
+            CreateESP(p)
+        end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- ===== МЕНЮ (DRAWING ИЛИ SCREENGUI) =====
+if DrawingSupported then
+    -- Меню через Drawing
+    local menuY = 50
+    local menuItems = {}
+
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 30)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(220, 180)
+    bg.Position = Vector2.new(50, 40)
+    bg.Filled = true
+    bg.ZIndex = 999
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.new(1,1,1)
+    title.Position = Vector2.new(60, 45)
+    title.Text = "ESP + Aimbot"
+    title.Size = 18
+    title.Center = false
+    title.ZIndex = 1000
+
+    local function addCheckbox(text, y, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, y)
+        box.Filled = true
+        box.ZIndex = 1000
+
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, y-2)
+        lbl.Text = text
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        table.insert(menuItems, {box=box, label=lbl, get=getter, set=setter, y=y})
+    end
+
+    addCheckbox("ESP", 70, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v; RefreshAllESP() end)
+    addCheckbox("Aimbot", 95, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    addCheckbox("Team Check", 120, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
+    addCheckbox("Show FOV", 145, function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
+
+    -- Слайдер для FOV (упрощённо: используем текстовые кнопки +/–)
+    local fovText = Drawing.new("Text")
+    fovText.Visible = true
+    fovText.Color = Color3.new(1,1,1)
+    fovText.Position = Vector2.new(60, 170)
+    fovText.Text = "FOV: " .. Settings.FOV
+    fovText.Size = 14
+    fovText.ZIndex = 1000
+
+    local fovMinus = Drawing.new("Square")
+    fovMinus.Visible = true
+    fovMinus.Color = Color3.fromRGB(60,60,60)
+    fovMinus.Size = Vector2.new(20,20)
+    fovMinus.Position = Vector2.new(160, 168)
+    fovMinus.Filled = true
+    fovMinus.ZIndex = 1000
+    local minusText = Drawing.new("Text")
+    minusText.Visible = true
+    minusText.Color = Color3.new(1,1,1)
+    minusText.Position = Vector2.new(166, 168)
+    minusText.Text = "-"
+    minusText.Size = 16
+    minusText.ZIndex = 1001
+
+    local fovPlus = Drawing.new("Square")
+    fovPlus.Visible = true
+    fovPlus.Color = Color3.fromRGB(60,60,60)
+    fovPlus.Size = Vector2.new(20,20)
+    fovPlus.Position = Vector2.new(185, 168)
+    fovPlus.Filled = true
+    fovPlus.ZIndex = 1000
+    local plusText = Drawing.new("Text")
+    plusText.Visible = true
+    plusText.Color = Color3.new(1,1,1)
+    plusText.Position = Vector2.new(191, 168)
+    plusText.Text = "+"
+    plusText.Size = 16
+    plusText.ZIndex = 1001
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            -- Чекбоксы
+            if m.X >= 50 and m.X <= 270 and m.Y >= 40 and m.Y <= 220 then
+                for _, item in ipairs(menuItems) do
+                    if m.Y >= item.y-6 and m.Y <= item.y+6 and m.X >= 60 and m.X <= 72 then
+                        local new = not item.get()
+                        item.set(new)
+                        item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
+                end
+                -- FOV минус
+                if m.X >= 160 and m.X <= 180 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.max(30, Settings.FOV - 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
+                end
+                -- FOV плюс
+                if m.X >= 185 and m.X <= 205 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.min(300, Settings.FOV + 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
+                end
+            end
+        end
+    end)
+else
+    -- Меню через ScreenGui (fallback)
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = randomString(12)
+    ScreenGui.Parent = CoreGui
+    if syn and syn.protect_gui then syn.protect_gui(ScreenGui) elseif protect_gui then protect_gui(ScreenGui) end
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 220, 0, 200)
+    MainFrame.Position = UDim2.new(0, 50, 0, 50)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    MainFrame.BackgroundTransparency = 0.2
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0,6)
+    UICorner.Parent = MainFrame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1,0,0,30)
+    Title.BackgroundTransparency = 1
+    Title.Text = "ESP + Aimbot"
+    Title.TextColor3 = Color3.new(1,1,1)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 18
+    Title.Parent = MainFrame
+
+    local yPos = 40
+    local function CreateCheckbox(text, getter, setter)
+        local box = Instance.new("TextButton")
+        box.Size = UDim2.new(0,20,0,20)
+        box.Position = UDim2.new(0,10,0,yPos)
+        box.BackgroundColor3 = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(60,60,60)
+        box.Text = ""
+        box.Parent = MainFrame
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1,-40,0,20)
+        lbl.Position = UDim2.new(0,40,0,yPos)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = Color3.new(1,1,1)
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Font = Enum.Font.SourceSans
+        lbl.TextSize = 16
+        lbl.Parent = MainFrame
+        box.MouseButton1Click:Connect(function()
+            local new = not getter()
+            setter(new)
+            box.BackgroundColor3 = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(60,60,60)
+            if text == "ESP" then RefreshAllESP() end
+        end)
+        yPos = yPos + 30
+    end
+
+    CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
+    CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
+    CreateCheckbox("Show FOV", function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
+
+    local fovLabel = Instance.new("TextLabel")
+    fovLabel.Size = UDim2.new(1,0,0,25)
+    fovLabel.Position = UDim2.new(0,10,0,yPos)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.Text = "FOV: " .. Settings.FOV
+    fovLabel.TextColor3 = Color3.new(1,1,1)
+    fovLabel.Font = Enum.Font.SourceSans
+    fovLabel.TextSize = 16
+    fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+    fovLabel.Parent = MainFrame
+
+    local minusBtn = Instance.new("TextButton")
+    minusBtn.Size = UDim2.new(0,25,0,25)
+    minusBtn.Position = UDim2.new(0,150,0,yPos)
+    minusBtn.Text = "-"
+    minusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    minusBtn.Parent = MainFrame
+    minusBtn.MouseButton1Click:Connect(function()
+        Settings.FOV = math.max(30, Settings.FOV - 10)
+        fovLabel.Text = "FOV: " .. Settings.FOV
+    end)
+
+    local plusBtn = Instance.new("TextButton")
+    plusBtn.Size = UDim2.new(0,25,0,25)
+    plusBtn.Position = UDim2.new(0,180,0,yPos)
+    plusBtn.Text = "+"
+    plusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    plusBtn.Parent = MainFrame
+    plusBtn.MouseButton1Click:Connect(function()
+        Settings.FOV = math.min(300, Settings.FOV + 10)
+        fovLabel.Text = "FOV: " .. Settings.FOV
+    end)
+end
+
+-- ===== ЗАПУСК =====
+RefreshAllESP()
+print("✅ ESP + Aimbot (FOV, круг на экране). Удерживайте ПКМ для наведения.")
