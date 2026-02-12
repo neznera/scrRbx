@@ -12,7 +12,6 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local DrawingSupported = pcall(Drawing.new, "Circle")
 
 -- ===== СЛУЧАЙНЫЕ ИМЕНА =====
 local function randomString(len)
@@ -30,9 +29,8 @@ local Settings = {
     -- Aimbot
     Aimbot_Enabled = true,
     TeamCheck = true,
-    VisibleCheck = false,      -- wallbang by default
-    Wallbang = true,
-    Smoothness = 1,            -- 1 = instant
+    VisibleCheck = true,      -- всегда true (нет wallbang)
+    Smoothness = 1,           -- 1 = мгновенно
     FOV = 120,
     -- Rapid Fire
     RapidFire = true,
@@ -53,8 +51,7 @@ local Presets = {
     Rage = {
         Aimbot_Enabled = true,
         Smoothness = 1,
-        VisibleCheck = false,
-        Wallbang = true,
+        VisibleCheck = true,
         NoRecoil = true,
         RapidFire = true,
         RapidFireDelay = 0.02,
@@ -68,7 +65,6 @@ local Presets = {
         Aimbot_Enabled = true,
         Smoothness = 15,
         VisibleCheck = true,
-        Wallbang = false,
         NoRecoil = false,
         RapidFire = false,
         AutoFire = false,
@@ -79,8 +75,7 @@ local Presets = {
     HVH = {
         Aimbot_Enabled = true,
         Smoothness = 1,
-        VisibleCheck = false,
-        Wallbang = true,
+        VisibleCheck = true,
         NoRecoil = true,
         RapidFire = true,
         RapidFireDelay = 0.015,
@@ -296,7 +291,6 @@ local function IsTeamMate(p)
 end
 
 local function IsVisible(character)
-    if Settings.Wallbang then return true end
     if not Settings.VisibleCheck then return true end
     local head = character:FindFirstChild("Head")
     if not head then return false end
@@ -415,7 +409,7 @@ elseif protect_gui then
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 280, 0, 520)
+MainFrame.Size = UDim2.new(0, 280, 0, 500)
 MainFrame.Position = UDim2.new(0, 50, 0, 50)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.2
@@ -441,7 +435,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1,-40,1,0)
 Title.Position = UDim2.new(0,10,0,0)
 Title.BackgroundTransparency = 1
-Title.Text = "HVH CHEAT"
+Title.Text = "HVH CHEAT (NO WALLBANG)"
 Title.TextColor3 = Color3.new(1,1,1)
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.SourceSansBold
@@ -606,17 +600,15 @@ CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(
 yPos = yPos + 30
 CreateCheckbox("Visible Check", function() return Settings.VisibleCheck end, function(v) Settings.VisibleCheck = v end, 90)
 yPos = yPos + 30
-CreateCheckbox("Wallbang", function() return Settings.Wallbang end, function(v) Settings.Wallbang = v end, 120)
+CreateCheckbox("No Recoil", function() return Settings.NoRecoil end, function(v) Settings.NoRecoil = v end, 120)
 yPos = yPos + 30
-CreateCheckbox("No Recoil", function() return Settings.NoRecoil end, function(v) Settings.NoRecoil = v end, 150)
+CreateCheckbox("Rapid Fire", function() return Settings.RapidFire end, function(v) Settings.RapidFire = v end, 150)
 yPos = yPos + 30
-CreateCheckbox("Rapid Fire", function() return Settings.RapidFire end, function(v) Settings.RapidFire = v end, 180)
+CreateCheckbox("Auto Fire", function() return Settings.AutoFire end, function(v) Settings.AutoFire = v end, 180)
 yPos = yPos + 30
-CreateCheckbox("Auto Fire", function() return Settings.AutoFire end, function(v) Settings.AutoFire = v end, 210)
+CreateCheckbox("Fast Bullets", function() return Settings.FastBullets_Enabled end, function(v) Settings.FastBullets_Enabled = v end, 210)
 yPos = yPos + 30
-CreateCheckbox("Fast Bullets", function() return Settings.FastBullets_Enabled end, function(v) Settings.FastBullets_Enabled = v end, 240)
-yPos = yPos + 30
-CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 270)
+CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 240)
 yPos = yPos + 30
 
 -- ===== СЛАЙДЕРЫ =====
@@ -699,4 +691,4 @@ yPos = yPos + 50
 -- ===== ЗАПУСК =====
 SetMode("HVH")
 RefreshAllESP()
-print("✅ HVH Cheat loaded. Hold RMB to aim. Mode: HVH")
+print("✅ HVH Cheat (NO WALLBANG) loaded. Hold RMB to aim. Mode: HVH")
