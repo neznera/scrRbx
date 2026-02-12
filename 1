@@ -1,103 +1,355 @@
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+-- Защита CoreGui
+if syn and syn.protect_gui then
+    syn.protect_gui(CoreGui)
+elseif protect_gui then
+    protect_gui(CoreGui)
+end
+
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ===== СЛУЧАЙНЫЕ ИМЕНА =====
+local function randomString(len)
+    local str = ""
+    for i = 1, len do
+        str = str .. string.char(math.random(65, 90))
+    end
+    return str
+end
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
-    Key = Enum.KeyCode.H,           -- Кнопка активации
-    Dupe = true,                   -- Дублировать предметы, если уже есть
-    SearchFolders = {              -- Где ищем предметы
-        game.ServerStorage,
-        game.ReplicatedStorage,
-        game.Lighting,
-        workspace:FindFirstChild("Weapons"),
-        workspace:FindFirstChild("Tools"),
-        workspace:FindFirstChild("Items"),
-        game:GetService("ReplicatedStorage"):FindFirstChild("Tools"),
-        game:GetService("ReplicatedStorage"):FindFirstChild("Weapons"),
-        game:GetService("ServerStorage"):FindFirstChild("Tools"),
-        game:GetService("ServerStorage"):FindFirstChild("Weapons"),
-    }
+    FlySpeed = 50,
 }
 
--- ===== ФУНКЦИЯ: ВЫДАТЬ ВСЁ =====
-local function GiveAllTools()
-    local character = LocalPlayer.Character
-    if not character then return end
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not backpack then return end
-    
-    local given = 0
-    
-    -- Проходим по всем папкам из списка
-    for _, folder in ipairs(Settings.SearchFolders) do
-        if folder and folder:IsA("Instance") then
-            -- Ищем ВСЕ объекты типа Tool
-            for _, tool in pairs(folder:GetDescendants()) do
-                if tool:IsA("Tool") then
-                    -- Проверяем, есть ли уже такой предмет
-                    local alreadyHas = false
-                    if not Settings.Dupe then
-                        for _, item in pairs(backpack:GetChildren()) do
-                            if item.Name == tool.Name then
-                                alreadyHas = true
-                                break
-                            end
-                        end
-                    end
-                    
-                    -- Выдаём, если нет дубликата или разрешён дуп
-                    if not alreadyHas or Settings.Dupe then
-                        local clone = tool:Clone()
-                        clone.Parent = backpack
-                        given = given + 1
-                    end
-                end
+-- ===== ПЕРЕМЕННЫЕ FLY =====
+local flyEnabled = false
+local flyBV = nil
+local flyBG = nil
+local flyConnection = nil
+
+-- ===== ПЕРЕМЕННЫЕ NOCLIP =====
+local noclipEnabled = false
+local noclipConnection = nil
+
+-- ===== ФУНКЦИИ FLY =====
+local function enableFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+
+    hum.PlatformStand = true
+
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.Name = randomString(12)
+    flyBV.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBV.Velocity = Vector3.new(0, 0, 0)
+    flyBV.Parent = root
+
+    flyBG = Instance.new("BodyGyro")
+    flyBG.Name = randomString(12)
+    flyBG.MaxTorque = Vector3.new(4000, 4000, 4000)
+    flyBG.P = 1000
+    flyBG.D = 500
+    flyBG.CFrame = root.CFrame
+    flyBG.Parent = root
+
+    if syn and syn.protect_gui then
+        syn.protect_gui(flyBV)
+        syn.protect_gui(flyBG)
+    elseif protect_gui then
+        protect_gui(flyBV)
+        protect_gui(flyBG)
+    end
+
+    flyEnabled = true
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not flyEnabled or not char or not root then
+            disableFly()
+            return
+        end
+
+        local move = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            move = move + Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            move = move - Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            move = move - Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            move = move + Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            move = move + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            move = move - Vector3.new(0, 1, 0)
+        end
+
+        if move.Magnitude > 0 then
+            move = move.Unit * Settings.FlySpeed
+        end
+
+        flyBV.Velocity = move
+        flyBG.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
+    end)
+end
+
+local function disableFly()
+    flyEnabled = false
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+    if flyBV then
+        flyBV:Destroy()
+        flyBV = nil
+    end
+    if flyBG then
+        flyBG:Destroy()
+        flyBG = nil
+    end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+        end
+    end
+end
+
+local function toggleFly()
+    if flyEnabled then
+        disableFly()
+    else
+        enableFly()
+    end
+end
+
+-- ===== ФУНКЦИИ NOCLIP =====
+local function enableNoclip()
+    if noclipEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    -- Мгновенно отключаем коллизию на всех частях
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+
+    -- Постоянно следим, чтобы коллизия оставалась выключенной
+    noclipConnection = RunService.Heartbeat:Connect(function()
+        if not noclipEnabled or not LocalPlayer.Character then
+            return
+        end
+        char = LocalPlayer.Character
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+
+    noclipEnabled = true
+end
+
+local function disableNoclip()
+    noclipEnabled = false
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
             end
         end
     end
-    
-    -- Если ничего не нашли — пробуем альтернативный метод
-    if given == 0 then
-        print("⚠️ Не найдено предметов в стандартных папках. Пробую ручной режим...")
-        GiveManualTools()
+end
+
+local function toggleNoclip()
+    if noclipEnabled then
+        disableNoclip()
     else
-        print("✅ Выдано предметов: " .. given)
+        enableNoclip()
     end
 end
 
--- ===== РУЧНОЙ РЕЖИМ (ДОПИШИ СВОИ ПРЕДМЕТЫ) =====
-local function GiveManualTools()
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not backpack then return end
-    
-    -- ⚠️⚠️⚠️ ВПИШИ СЮДА НАЗВАНИЯ ПРЕДМЕТОВ, КОТОРЫЕ НУЖНЫ ⚠️⚠️⚠️
-    local toolNames = {
-        -- Примеры (удали и напиши свои):
-        -- "Sword", "Gun", "AK47", "M4A1", "Medkit", "GrapplingHook", "Key"
-    }
-    
-    -- Где искать предметы (по умолчанию ServerStorage)
-    local source = game.ServerStorage
-    
-    for _, name in ipairs(toolNames) do
-        local tool = source:FindFirstChild(name, true)  -- true = искать везде внутри
-        if tool and tool:IsA("Tool") then
-            local clone = tool:Clone()
-            clone.Parent = backpack
-            print("✅ Выдано: " .. name)
-        else
-            print("❌ Не найден: " .. name)
-        end
-    end
-end
-
--- ===== УПРАВЛЕНИЕ КНОПКОЙ H =====
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Settings.Key then
-        GiveAllTools()
+-- ===== УПРАВЛЕНИЕ =====
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        toggleFly()
+    elseif input.KeyCode == Enum.KeyCode.N then
+        toggleNoclip()
     end
 end)
 
-print("✅ СКРИПТ ВЫДАЧИ ПРЕДМЕТОВ ЗАГРУЖЕН. НАЖМИ H, ЧТОБЫ ПОЛУЧИТЬ ВСЁ.")
-print("⚠️ Если ничего не выдало — открой код и допиши названия предметов в GiveManualTools()")
+-- Отключаем всё при респавне
+LocalPlayer.CharacterAdded:Connect(function()
+    if flyEnabled then
+        disableFly()
+    end
+    if noclipEnabled then
+        disableNoclip()
+    end
+end)
+
+-- ===== МЕНЮ =====
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = randomString(12)
+ScreenGui.Parent = CoreGui
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+elseif protect_gui then
+    protect_gui(ScreenGui)
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 300, 0, 210)
+MainFrame.Position = UDim2.new(0, 50, 0, 50)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BackgroundTransparency = 0.1
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ FLY + NOCLIP"
+Title.TextColor3 = Color3.fromRGB(100, 200, 255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 24
+Title.Parent = MainFrame
+
+-- Статус Fly
+local FlyStatus = Instance.new("TextLabel")
+FlyStatus.Size = UDim2.new(1, -20, 0, 35)
+FlyStatus.Position = UDim2.new(0, 10, 0, 45)
+FlyStatus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+FlyStatus.Text = "FLY: OFF (Press F)"
+FlyStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+FlyStatus.Font = Enum.Font.SourceSansBold
+FlyStatus.TextSize = 20
+FlyStatus.Parent = MainFrame
+local FlyCorner = Instance.new("UICorner")
+FlyCorner.CornerRadius = UDim.new(0, 6)
+FlyCorner.Parent = FlyStatus
+
+-- Статус Noclip
+local NoclipStatus = Instance.new("TextLabel")
+NoclipStatus.Size = UDim2.new(1, -20, 0, 35)
+NoclipStatus.Position = UDim2.new(0, 10, 0, 85)
+NoclipStatus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+NoclipStatus.Text = "NOCLIP: OFF (Press N)"
+NoclipStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+NoclipStatus.Font = Enum.Font.SourceSansBold
+NoclipStatus.TextSize = 20
+NoclipStatus.Parent = MainFrame
+local NoclipCorner = Instance.new("UICorner")
+NoclipCorner.CornerRadius = UDim.new(0, 6)
+NoclipCorner.Parent = NoclipStatus
+
+-- Слайдер скорости
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(1, -20, 0, 25)
+SpeedLabel.Position = UDim2.new(0, 10, 0, 135)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Скорость: " .. Settings.FlySpeed
+SpeedLabel.TextColor3 = Color3.new(1, 1, 1)
+SpeedLabel.Font = Enum.Font.SourceSans
+SpeedLabel.TextSize = 18
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = MainFrame
+
+local SliderBg = Instance.new("Frame")
+SliderBg.Size = UDim2.new(1, -20, 0, 12)
+SliderBg.Position = UDim2.new(0, 10, 0, 165)
+SliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+SliderBg.Parent = MainFrame
+local SliderCorner = Instance.new("UICorner")
+SliderCorner.CornerRadius = UDim.new(0, 6)
+SliderCorner.Parent = SliderBg
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new((Settings.FlySpeed - 20) / 130, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+SliderFill.Parent = SliderBg
+local FillCorner = Instance.new("UICorner")
+FillCorner.CornerRadius = UDim.new(0, 6)
+FillCorner.Parent = SliderFill
+
+-- Логика слайдера
+local dragging = false
+SliderFill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if dragging then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absX, absY = SliderBg.AbsolutePosition.X, SliderBg.AbsolutePosition.Y
+        local absSizeX = SliderBg.AbsoluteSize.X
+        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+        local percent = relativeX / absSizeX
+        local value = math.floor(20 + (130 * percent))
+        Settings.FlySpeed = math.clamp(value, 20, 150)
+        SliderFill.Size = UDim2.new((Settings.FlySpeed - 20) / 130, 0, 1, 0)
+        SpeedLabel.Text = "Скорость: " .. Settings.FlySpeed
+    end
+end)
+
+-- Обновление статусов
+RunService.RenderStepped:Connect(function()
+    if flyEnabled then
+        FlyStatus.Text = "FLY: ON (Press F)"
+        FlyStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
+        FlyStatus.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+    else
+        FlyStatus.Text = "FLY: OFF (Press F)"
+        FlyStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+        FlyStatus.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+    end
+
+    if noclipEnabled then
+        NoclipStatus.Text = "NOCLIP: ON (Press N)"
+        NoclipStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
+        NoclipStatus.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+    else
+        NoclipStatus.Text = "NOCLIP: OFF (Press N)"
+        NoclipStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
+        NoclipStatus.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+    end
+end)
+
+print("✅ FLY + NOCLIP загружены.")
+print("🎮 F = FLY | N = NOCLIP")
+print("⚙️ Скорость регулируется ползунком.")
