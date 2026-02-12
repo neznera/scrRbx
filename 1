@@ -12,8 +12,6 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-
--- ===== ПРОВЕРКА ПОДДЕРЖКИ DRAWING =====
 local DrawingSupported = pcall(Drawing.new, "Circle")
 
 -- ===== СЛУЧАЙНЫЕ ИМЕНА =====
@@ -27,24 +25,17 @@ end
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
-    -- ESP
     ESP_Enabled = true,
-    -- Aimbot
     Aimbot_Enabled = true,
     TeamCheck = true,
-    TargetMode = "FOV",        -- "FOV" или "3D"
     FOV = 120,
-    Smoothness = 5,           -- чем больше, тем плавнее (1 = мгновенно)
+    Smoothness = 15,        -- 1 = мгновенно, 20 = очень плавно
     FOV_Visible = true,
 }
 
--- ===== ПЕРЕМЕННЫЕ =====
-local ESP_Cache = setmetatable({}, {__mode = "v"})
-local IsAiming = false
-local CurrentTarget = nil
-local MouseMoveConnection = nil
-
 -- ===== ESP: ЖЁЛТЫЙ КРУГ НА ГОЛОВЕ =====
+local ESP_Cache = setmetatable({}, {__mode = "v"})
+
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -112,19 +103,21 @@ local function RefreshAllESP()
 end
 
 -- ===== AIMBOT =====
+local IsAiming = false
+local CurrentTarget = nil
+
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
 
-local function GetTarget()
+local function GetClosestToMouse()
     if not Settings.Aimbot_Enabled then return nil end
+
     local mousePos = UserInputService:GetMouseLocation()
-    local closest, closestDistFOV = nil, Settings.FOV
-    local closestDist3D = math.huge
-    local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
-    
+    local closest, closestDist = nil, Settings.FOV
+
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
             if not IsTeamMate(p) then
@@ -132,19 +125,10 @@ local function GetTarget()
                 if head then
                     local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                     if onScreen then
-                        local distFOV = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
-                        local dist3D = myHead and (head.Position - myHead.Position).Magnitude or math.huge
-                        
-                        if Settings.TargetMode == "FOV" then
-                            if distFOV < closestDistFOV then
-                                closestDistFOV = distFOV
-                                closest = p
-                            end
-                        else -- "3D"
-                            if dist3D < closestDist3D then
-                                closestDist3D = dist3D
-                                closest = p
-                            end
+                        local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = p
                         end
                     end
                 end
@@ -154,17 +138,15 @@ local function GetTarget()
     return closest
 end
 
--- Функция движения мыши (плавное)
+-- Плавное перемещение мыши
 local function MoveMouseSmooth(targetX, targetY)
     local current = UserInputService:GetMouseLocation()
     local delta = Vector2.new(targetX - current.X, targetY - current.Y)
     if delta.Magnitude < 0.5 then return end
     
-    local smooth = Settings.Smoothness
-    if smooth < 1 then smooth = 1 end
-    
-    local moveX = delta.X / smooth
-    local moveY = delta.Y / smooth
+    local smoothFactor = math.max(1, Settings.Smoothness)
+    local moveX = delta.X / smoothFactor
+    local moveY = delta.Y / smoothFactor
     
     if mousemoverel then
         mousemoverel(moveX, moveY)
@@ -179,30 +161,12 @@ end
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = true
-        CurrentTarget = GetTarget()
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = false
-        CurrentTarget = nil
-    end
-end)
-
--- Главный цикл аима (RenderStepped)
-RunService.RenderStepped:Connect(function()
-    if Settings.Aimbot_Enabled and IsAiming then
-        -- Обновляем цель каждый кадр (чтобы следить за движением)
-        CurrentTarget = GetTarget()
-        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
-            local head = CurrentTarget.Character.Head
-            local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
-            if onScreen then
-                MoveMouseSmooth(vec.X, vec.Y)
-            end
-        end
-    else
         CurrentTarget = nil
     end
 end)
@@ -217,7 +181,9 @@ if FOVCircle then
     FOVCircle.Filled = false
 end
 
+-- ===== ГЛАВНЫЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
+    -- FOV круг
     if DrawingSupported and Settings.FOV_Visible then
         local mousePos = UserInputService:GetMouseLocation()
         FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
@@ -225,6 +191,20 @@ RunService.RenderStepped:Connect(function()
         FOVCircle.Visible = true
     elseif FOVCircle then
         FOVCircle.Visible = false
+    end
+
+    -- Аимбот (только при удержании ПКМ)
+    if Settings.Aimbot_Enabled and IsAiming then
+        CurrentTarget = GetClosestToMouse()
+        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
+            local head = CurrentTarget.Character.Head
+            local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                MoveMouseSmooth(vec.X, vec.Y)
+            end
+        end
+    else
+        CurrentTarget = nil
     end
 end)
 
@@ -251,14 +231,14 @@ end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- ===== МЕНЮ =====
+-- ===== МЕНЮ (Drawing / ScreenGui) =====
 if DrawingSupported then
-    -- ===== МЕНЮ ЧЕРЕЗ DRAWING =====
+    -- МЕНЮ ЧЕРЕЗ DRAWING (красивое, без утечек)
     local bg = Drawing.new("Square")
     bg.Visible = true
     bg.Color = Color3.fromRGB(30, 30, 30)
     bg.Transparency = 0.9
-    bg.Size = Vector2.new(260, 280)
+    bg.Size = Vector2.new(220, 220)
     bg.Position = Vector2.new(50, 40)
     bg.Filled = true
     bg.ZIndex = 999
@@ -267,11 +247,9 @@ if DrawingSupported then
     title.Visible = true
     title.Color = Color3.new(1,1,1)
     title.Position = Vector2.new(60, 45)
-    title.Text = "ESP + Aimbot (Smooth)"
+    title.Text = "ESP + Aimbot"
     title.Size = 18
     title.ZIndex = 1000
-
-    local menuItems = {}
 
     local function addCheckbox(text, y, getter, setter)
         local box = Drawing.new("Square")
@@ -290,182 +268,74 @@ if DrawingSupported then
         lbl.Size = 14
         lbl.ZIndex = 1000
 
-        table.insert(menuItems, {box=box, label=lbl, get=getter, set=setter, y=y})
+        return {box = box, lbl = lbl, y = y, get = getter, set = setter}
     end
 
-    addCheckbox("ESP", 70, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v; RefreshAllESP() end)
-    addCheckbox("Aimbot", 95, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
-    addCheckbox("Team Check", 120, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
-    addCheckbox("Show FOV", 145, function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
+    local items = {
+        addCheckbox("ESP", 70, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v; RefreshAllESP() end),
+        addCheckbox("Aimbot", 95, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end),
+        addCheckbox("Team Check", 120, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end),
+        addCheckbox("Show FOV", 145, function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end),
+    }
 
-    -- Target Mode (текст + кнопки +/-
-    local modeText = Drawing.new("Text")
-    modeText.Visible = true
-    modeText.Color = Color3.new(1,1,1)
-    modeText.Position = Vector2.new(60, 175)
-    modeText.Text = "Mode: " .. Settings.TargetMode
-    modeText.Size = 14
-    modeText.ZIndex = 1000
-
-    local modePrev = Drawing.new("Square")
-    modePrev.Visible = true
-    modePrev.Color = Color3.fromRGB(60,60,60)
-    modePrev.Size = Vector2.new(20,20)
-    modePrev.Position = Vector2.new(160, 173)
-    modePrev.Filled = true
-    modePrev.ZIndex = 1000
-    local prevText = Drawing.new("Text")
-    prevText.Visible = true
-    prevText.Color = Color3.new(1,1,1)
-    prevText.Position = Vector2.new(166, 173)
-    prevText.Text = "<"
-    prevText.Size = 16
-    prevText.ZIndex = 1001
-
-    local modeNext = Drawing.new("Square")
-    modeNext.Visible = true
-    modeNext.Color = Color3.fromRGB(60,60,60)
-    modeNext.Size = Vector2.new(20,20)
-    modeNext.Position = Vector2.new(185, 173)
-    modeNext.Filled = true
-    modeNext.ZIndex = 1000
-    local nextText = Drawing.new("Text")
-    nextText.Visible = true
-    nextText.Color = Color3.new(1,1,1)
-    nextText.Position = Vector2.new(191, 173)
-    nextText.Text = ">"
-    nextText.Size = 16
-    nextText.ZIndex = 1001
-
-    -- FOV slider
     local fovText = Drawing.new("Text")
     fovText.Visible = true
     fovText.Color = Color3.new(1,1,1)
-    fovText.Position = Vector2.new(60, 205)
+    fovText.Position = Vector2.new(60, 175)
     fovText.Text = "FOV: " .. Settings.FOV
     fovText.Size = 14
     fovText.ZIndex = 1000
 
-    local fovMinus = Drawing.new("Square")
-    fovMinus.Visible = true
-    fovMinus.Color = Color3.fromRGB(60,60,60)
-    fovMinus.Size = Vector2.new(20,20)
-    fovMinus.Position = Vector2.new(160, 203)
-    fovMinus.Filled = true
-    fovMinus.ZIndex = 1000
-    local minusText = Drawing.new("Text")
-    minusText.Visible = true
-    minusText.Color = Color3.new(1,1,1)
-    minusText.Position = Vector2.new(166, 203)
-    minusText.Text = "-"
-    minusText.Size = 16
-    minusText.ZIndex = 1001
-
-    local fovPlus = Drawing.new("Square")
-    fovPlus.Visible = true
-    fovPlus.Color = Color3.fromRGB(60,60,60)
-    fovPlus.Size = Vector2.new(20,20)
-    fovPlus.Position = Vector2.new(185, 203)
-    fovPlus.Filled = true
-    fovPlus.ZIndex = 1000
-    local plusText = Drawing.new("Text")
-    plusText.Visible = true
-    plusText.Color = Color3.new(1,1,1)
-    plusText.Position = Vector2.new(191, 203)
-    plusText.Text = "+"
-    plusText.Size = 16
-    plusText.ZIndex = 1001
-
-    -- Smooth slider
     local smoothText = Drawing.new("Text")
     smoothText.Visible = true
     smoothText.Color = Color3.new(1,1,1)
-    smoothText.Position = Vector2.new(60, 235)
+    smoothText.Position = Vector2.new(60, 200)
     smoothText.Text = "Smooth: " .. Settings.Smoothness
     smoothText.Size = 14
     smoothText.ZIndex = 1000
 
-    local smoothMinus = Drawing.new("Square")
-    smoothMinus.Visible = true
-    smoothMinus.Color = Color3.fromRGB(60,60,60)
-    smoothMinus.Size = Vector2.new(20,20)
-    smoothMinus.Position = Vector2.new(160, 233)
-    smoothMinus.Filled = true
-    smoothMinus.ZIndex = 1000
-    local smoothMinusText = Drawing.new("Text")
-    smoothMinusText.Visible = true
-    smoothMinusText.Color = Color3.new(1,1,1)
-    smoothMinusText.Position = Vector2.new(166, 233)
-    smoothMinusText.Text = "-"
-    smoothMinusText.Size = 16
-    smoothMinusText.ZIndex = 1001
-
-    local smoothPlus = Drawing.new("Square")
-    smoothPlus.Visible = true
-    smoothPlus.Color = Color3.fromRGB(60,60,60)
-    smoothPlus.Size = Vector2.new(20,20)
-    smoothPlus.Position = Vector2.new(185, 233)
-    smoothPlus.Filled = true
-    smoothPlus.ZIndex = 1000
-    local smoothPlusText = Drawing.new("Text")
-    smoothPlusText.Visible = true
-    smoothPlusText.Color = Color3.new(1,1,1)
-    smoothPlusText.Position = Vector2.new(191, 233)
-    smoothPlusText.Text = "+"
-    smoothPlusText.Size = 16
-    smoothPlusText.ZIndex = 1001
-
+    -- Обработка кликов по меню
     UserInputService.InputBegan:Connect(function(input, gp)
         if not gp and input.UserInputType == Enum.UserInputType.MouseButton1 then
             local m = UserInputService:GetMouseLocation()
-            if m.X >= 50 and m.X <= 310 and m.Y >= 40 and m.Y <= 320 then
-                -- Чекбоксы
-                for _, item in ipairs(menuItems) do
+            if m.X >= 50 and m.X <= 270 and m.Y >= 40 and m.Y <= 260 then
+                for _, item in ipairs(items) do
                     if m.Y >= item.y-6 and m.Y <= item.y+6 and m.X >= 60 and m.X <= 72 then
                         local new = not item.get()
                         item.set(new)
                         item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
                     end
                 end
-                -- Target Mode prev/next
+                -- FOV изменение (условные кнопки +-)
                 if m.X >= 160 and m.X <= 180 and m.Y >= 173 and m.Y <= 193 then
-                    Settings.TargetMode = (Settings.TargetMode == "FOV") and "3D" or "FOV"
-                    modeText.Text = "Mode: " .. Settings.TargetMode
-                end
-                if m.X >= 185 and m.X <= 205 and m.Y >= 173 and m.Y <= 193 then
-                    Settings.TargetMode = (Settings.TargetMode == "FOV") and "3D" or "FOV"
-                    modeText.Text = "Mode: " .. Settings.TargetMode
-                end
-                -- FOV
-                if m.X >= 160 and m.X <= 180 and m.Y >= 203 and m.Y <= 223 then
                     Settings.FOV = math.max(30, Settings.FOV - 10)
                     fovText.Text = "FOV: " .. Settings.FOV
                 end
-                if m.X >= 185 and m.X <= 205 and m.Y >= 203 and m.Y <= 223 then
+                if m.X >= 185 and m.X <= 205 and m.Y >= 173 and m.Y <= 193 then
                     Settings.FOV = math.min(300, Settings.FOV + 10)
                     fovText.Text = "FOV: " .. Settings.FOV
                 end
-                -- Smooth
-                if m.X >= 160 and m.X <= 180 and m.Y >= 233 and m.Y <= 253 then
+                -- Smooth изменение
+                if m.X >= 160 and m.X <= 180 and m.Y >= 198 and m.Y <= 218 then
                     Settings.Smoothness = math.max(1, Settings.Smoothness - 1)
                     smoothText.Text = "Smooth: " .. Settings.Smoothness
                 end
-                if m.X >= 185 and m.X <= 205 and m.Y >= 233 and m.Y <= 253 then
-                    Settings.Smoothness = math.min(20, Settings.Smoothness + 1)
+                if m.X >= 185 and m.X <= 205 and m.Y >= 198 and m.Y <= 218 then
+                    Settings.Smoothness = math.min(30, Settings.Smoothness + 1)
                     smoothText.Text = "Smooth: " .. Settings.Smoothness
                 end
             end
         end
     end)
 else
-    -- ===== МЕНЮ ЧЕРЕЗ SCREENGUI =====
+    -- МЕНЮ ЧЕРЕЗ SCREENGUI (надёжный fallback)
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = randomString(12)
     ScreenGui.Parent = CoreGui
     if syn and syn.protect_gui then syn.protect_gui(ScreenGui) elseif protect_gui then protect_gui(ScreenGui) end
 
     local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 260, 0, 280)
+    MainFrame.Size = UDim2.new(0, 240, 0, 240)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
     MainFrame.BackgroundTransparency = 0.2
@@ -480,7 +350,7 @@ else
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1,0,0,30)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aimbot (Smooth)"
+    Title.Text = "ESP + Aimbot"
     Title.TextColor3 = Color3.new(1,1,1)
     Title.Font = Enum.Font.SourceSansBold
     Title.TextSize = 18
@@ -518,154 +388,74 @@ else
     CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
     CreateCheckbox("Show FOV", function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
 
-    -- Target Mode
-    local modeLabel = Instance.new("TextLabel")
-    modeLabel.Size = UDim2.new(0, 80, 0, 25)
-    modeLabel.Position = UDim2.new(0,10,0,yPos)
-    modeLabel.BackgroundTransparency = 1
-    modeLabel.Text = "Mode:"
-    modeLabel.TextColor3 = Color3.new(1,1,1)
-    modeLabel.Font = Enum.Font.SourceSans
-    modeLabel.TextSize = 16
-    modeLabel.TextXAlignment = Enum.TextXAlignment.Left
-    modeLabel.Parent = MainFrame
-
-    local modeValue = Instance.new("TextLabel")
-    modeValue.Size = UDim2.new(0, 50, 0, 25)
-    modeValue.Position = UDim2.new(0, 60, 0, yPos)
-    modeValue.BackgroundTransparency = 1
-    modeValue.Text = Settings.TargetMode
-    modeValue.TextColor3 = Color3.new(1,1,1)
-    modeValue.Font = Enum.Font.SourceSansBold
-    modeValue.TextSize = 16
-    modeValue.Parent = MainFrame
-
-    local modePrev = Instance.new("TextButton")
-    modePrev.Size = UDim2.new(0, 25, 0, 25)
-    modePrev.Position = UDim2.new(0, 120, 0, yPos)
-    modePrev.Text = "<"
-    modePrev.BackgroundColor3 = Color3.fromRGB(80,80,80)
-    modePrev.Parent = MainFrame
-    modePrev.MouseButton1Click:Connect(function()
-        Settings.TargetMode = (Settings.TargetMode == "FOV") and "3D" or "FOV"
-        modeValue.Text = Settings.TargetMode
-    end)
-
-    local modeNext = Instance.new("TextButton")
-    modeNext.Size = UDim2.new(0, 25, 0, 25)
-    modeNext.Position = UDim2.new(0, 150, 0, yPos)
-    modeNext.Text = ">"
-    modeNext.BackgroundColor3 = Color3.fromRGB(80,80,80)
-    modeNext.Parent = MainFrame
-    modeNext.MouseButton1Click:Connect(function()
-        Settings.TargetMode = (Settings.TargetMode == "FOV") and "3D" or "FOV"
-        modeValue.Text = Settings.TargetMode
-    end)
-    yPos = yPos + 35
-
-    -- FOV
     local fovLabel = Instance.new("TextLabel")
-    fovLabel.Size = UDim2.new(0, 60, 0, 25)
+    fovLabel.Size = UDim2.new(0, 80, 0, 25)
     fovLabel.Position = UDim2.new(0,10,0,yPos)
     fovLabel.BackgroundTransparency = 1
-    fovLabel.Text = "FOV:"
+    fovLabel.Text = "FOV: " .. Settings.FOV
     fovLabel.TextColor3 = Color3.new(1,1,1)
     fovLabel.Font = Enum.Font.SourceSans
     fovLabel.TextSize = 16
     fovLabel.TextXAlignment = Enum.TextXAlignment.Left
     fovLabel.Parent = MainFrame
 
-    local fovValue = Instance.new("TextLabel")
-    fovValue.Size = UDim2.new(0, 40, 0, 25)
-    fovValue.Position = UDim2.new(0, 60, 0, yPos)
-    fovValue.BackgroundTransparency = 1
-    fovValue.Text = Settings.FOV
-    fovValue.TextColor3 = Color3.new(1,1,1)
-    fovValue.Font = Enum.Font.SourceSansBold
-    fovValue.TextSize = 16
-    fovValue.Parent = MainFrame
-
     local fovMinus = Instance.new("TextButton")
-    fovMinus.Size = UDim2.new(0, 25, 0, 25)
-    fovMinus.Position = UDim2.new(0, 120, 0, yPos)
+    fovMinus.Size = UDim2.new(0,25,0,25)
+    fovMinus.Position = UDim2.new(0,150,0,yPos)
     fovMinus.Text = "-"
     fovMinus.BackgroundColor3 = Color3.fromRGB(80,80,80)
     fovMinus.Parent = MainFrame
     fovMinus.MouseButton1Click:Connect(function()
         Settings.FOV = math.max(30, Settings.FOV - 10)
-        fovValue.Text = Settings.FOV
+        fovLabel.Text = "FOV: " .. Settings.FOV
     end)
 
     local fovPlus = Instance.new("TextButton")
-    fovPlus.Size = UDim2.new(0, 25, 0, 25)
-    fovPlus.Position = UDim2.new(0, 150, 0, yPos)
+    fovPlus.Size = UDim2.new(0,25,0,25)
+    fovPlus.Position = UDim2.new(0,180,0,yPos)
     fovPlus.Text = "+"
     fovPlus.BackgroundColor3 = Color3.fromRGB(80,80,80)
     fovPlus.Parent = MainFrame
     fovPlus.MouseButton1Click:Connect(function()
         Settings.FOV = math.min(300, Settings.FOV + 10)
-        fovValue.Text = Settings.FOV
+        fovLabel.Text = "FOV: " .. Settings.FOV
     end)
     yPos = yPos + 35
 
-    -- Smooth
     local smoothLabel = Instance.new("TextLabel")
-    smoothLabel.Size = UDim2.new(0, 70, 0, 25)
+    smoothLabel.Size = UDim2.new(0, 100, 0, 25)
     smoothLabel.Position = UDim2.new(0,10,0,yPos)
     smoothLabel.BackgroundTransparency = 1
-    smoothLabel.Text = "Smooth:"
+    smoothLabel.Text = "Smooth: " .. Settings.Smoothness
     smoothLabel.TextColor3 = Color3.new(1,1,1)
     smoothLabel.Font = Enum.Font.SourceSans
     smoothLabel.TextSize = 16
     smoothLabel.TextXAlignment = Enum.TextXAlignment.Left
     smoothLabel.Parent = MainFrame
 
-    local smoothValue = Instance.new("TextLabel")
-    smoothValue.Size = UDim2.new(0, 40, 0, 25)
-    smoothValue.Position = UDim2.new(0, 70, 0, yPos)
-    smoothValue.BackgroundTransparency = 1
-    smoothValue.Text = Settings.Smoothness
-    smoothValue.TextColor3 = Color3.new(1,1,1)
-    smoothValue.Font = Enum.Font.SourceSansBold
-    smoothValue.TextSize = 16
-    smoothValue.Parent = MainFrame
-
     local smoothMinus = Instance.new("TextButton")
-    smoothMinus.Size = UDim2.new(0, 25, 0, 25)
-    smoothMinus.Position = UDim2.new(0, 120, 0, yPos)
+    smoothMinus.Size = UDim2.new(0,25,0,25)
+    smoothMinus.Position = UDim2.new(0,150,0,yPos)
     smoothMinus.Text = "-"
     smoothMinus.BackgroundColor3 = Color3.fromRGB(80,80,80)
     smoothMinus.Parent = MainFrame
     smoothMinus.MouseButton1Click:Connect(function()
         Settings.Smoothness = math.max(1, Settings.Smoothness - 1)
-        smoothValue.Text = Settings.Smoothness
+        smoothLabel.Text = "Smooth: " .. Settings.Smoothness
     end)
 
     local smoothPlus = Instance.new("TextButton")
-    smoothPlus.Size = UDim2.new(0, 25, 0, 25)
-    smoothPlus.Position = UDim2.new(0, 150, 0, yPos)
+    smoothPlus.Size = UDim2.new(0,25,0,25)
+    smoothPlus.Position = UDim2.new(0,180,0,yPos)
     smoothPlus.Text = "+"
     smoothPlus.BackgroundColor3 = Color3.fromRGB(80,80,80)
     smoothPlus.Parent = MainFrame
     smoothPlus.MouseButton1Click:Connect(function()
-        Settings.Smoothness = math.min(20, Settings.Smoothness + 1)
-        smoothValue.Text = Settings.Smoothness
+        Settings.Smoothness = math.min(30, Settings.Smoothness + 1)
+        smoothLabel.Text = "Smooth: " .. Settings.Smoothness
     end)
-    yPos = yPos + 35
-
-    -- Refresh кнопка
-    local RefreshBtn = Instance.new("TextButton")
-    RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
-    RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
-    RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH ESP"
-    RefreshBtn.TextColor3 = Color3.new(1,1,1)
-    RefreshBtn.Font = Enum.Font.SourceSansBold
-    RefreshBtn.TextSize = 16
-    RefreshBtn.Parent = MainFrame
-    RefreshBtn.MouseButton1Click:Connect(RefreshAllESP)
 end
 
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ Классический Aimbot (плавный) + ESP. Удерживайте ПКМ для наведения.")
+print("✅ Classic Aimbot + ESP ready. Hold RMB to aim.")
