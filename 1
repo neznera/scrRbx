@@ -1,0 +1,714 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+-- Защита CoreGui
+if syn and syn.protect_gui then
+    syn.protect_gui(CoreGui)
+elseif protect_gui then
+    protect_gui(CoreGui)
+end
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ========== СЛУЧАЙНЫЕ ИМЕНА ==========
+local function randomString(len)
+    local str = ""
+    for i = 1, len do
+        str = str .. string.char(math.random(65, 90))
+    end
+    return str
+end
+
+-- ========== НАСТРОЙКИ ПО УМОЛЧАНИЮ ==========
+local Settings = {
+    -- ESP
+    ESP_Enabled = true,
+    ESP_Transparency = 0.4,
+    ESP_Color = Color3.fromRGB(255, 255, 0), -- жёлтый
+
+    -- Aimbot
+    Aimbot_Enabled = true,
+    Aimbot_Key = Enum.UserInputType.MouseButton2, -- правая кнопка мыши
+    Aimbot_TargetMode = "3D",                    -- по умолчанию ближайший по 3D дистанции!
+    Aimbot_FOV = 120,                            -- только если переключите на FOV
+    Aimbot_TeamCheck = true,
+    Aimbot_Wallbang = false,                    -- теперь по умолчанию ВЫКЛЮЧЕНО (пули не летят сквозь стены)
+    Aimbot_VisibleCheck = true,                 -- проверка видимости
+    Aimbot_NoRecoil = true,
+    Aimbot_RapidFire = true,
+    Aimbot_RapidFireDelay = 0.05,
+    Aimbot_AutoFire = true,
+    Aimbot_SilentAim = false,
+    
+    -- Fast Bullets
+    FastBullets_Enabled = true,                 -- ускорение пуль
+    FastBullets_Multiplier = 5,                -- множитель скорости (чем выше, тем быстрее)
+}
+
+-- ========== ПЕРЕМЕННЫЕ ==========
+local ESP_Cache = setmetatable({}, {__mode = "v"})
+local MenuOpen = true
+local Dragging = false
+local DragStart, DragPos
+local IsKeyHolding = false
+local AimTarget = nil
+local LastShotTime = 0
+
+-- ========== FAST BULLETS (УСКОРЕНИЕ ПУЛЬ) ==========
+local function ApplyFastBullets()
+    if not Settings.FastBullets_Enabled then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
+    if not tool then return end
+    
+    -- Список возможных свойств, отвечающих за скорость снарядов
+    local velocityProps = {
+        "BulletVelocity", "Velocity", "ProjectileVelocity", "Speed", 
+        "BulletSpeed", "LaunchSpeed", "ShotVelocity", "MaxSpeed"
+    }
+    
+    -- Ищем в самом инструменте
+    for _, propName in ipairs(velocityProps) do
+        pcall(function()
+            if tool[propName] ~= nil then
+                local original = tool[propName].Value or tool[propName]
+                if type(original) == "number" then
+                    if tool[propName]:IsA("NumberValue") then
+                        tool[propName].Value = original * Settings.FastBullets_Multiplier
+                    else
+                        tool[propName] = original * Settings.FastBullets_Multiplier
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Ищем внутри инструмента (например, Handle с BodyVelocity и т.д.)
+    for _, child in pairs(tool:GetDescendants()) do
+        if child:IsA("Part") or child:IsA("MeshPart") then
+            for _, propName in ipairs(velocityProps) do
+                pcall(function()
+                    if child[propName] ~= nil then
+                        local original = child[propName].Value or child[propName]
+                        if type(original) == "number" then
+                            if child[propName]:IsA("NumberValue") then
+                                child[propName].Value = original * Settings.FastBullets_Multiplier
+                            else
+                                child[propName] = original * Settings.FastBullets_Multiplier
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end
+
+-- ========== NO RECOIL ==========
+local function ApplyNoRecoil()
+    if not Settings.Aimbot_NoRecoil then return end
+    
+    local character = LocalPlayer.Character
+    if character then
+        local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
+        if tool then
+            local recoilProps = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin"}
+            for _, propName in ipairs(recoilProps) do
+                pcall(function()
+                    if tool:FindFirstChild(propName) then
+                        tool[propName].Value = 0
+                    end
+                    if tool[propName] ~= nil then
+                        tool[propName] = 0
+                    end
+                end)
+            end
+        end
+    end
+end
+
+-- ========== МЕНЮ (с новыми опциями) ==========
+local function CreateMenu()
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = randomString(12)
+    ScreenGui.Parent = CoreGui
+
+    if syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+    elseif protect_gui then
+        protect_gui(ScreenGui)
+    end
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = randomString(8)
+    MainFrame.Size = UDim2.new(0, 300, 0, 650)
+    MainFrame.Position = UDim2.new(0, 50, 0, 50)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    MainFrame.BackgroundTransparency = 0.2
+    MainFrame.Active = true
+    MainFrame.Draggable = false
+    MainFrame.Parent = ScreenGui
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 6)
+    UICorner.Parent = MainFrame
+
+    local TopBar = Instance.new("Frame")
+    TopBar.Size = UDim2.new(1, 0, 0, 30)
+    TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    TopBar.BorderSizePixel = 0
+    TopBar.Parent = MainFrame
+
+    local TopBarCorner = Instance.new("UICorner")
+    TopBarCorner.CornerRadius = UDim.new(0, 6)
+    TopBarCorner.Parent = TopBar
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -40, 1, 0)
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "ESP + Aim God"
+    Title.TextColor3 = Color3.new(1, 1, 1)
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 18
+    Title.Parent = TopBar
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+    CloseBtn.Position = UDim2.new(1, -30, 0, 0)
+    CloseBtn.BackgroundTransparency = 1
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.new(1, 0, 0)
+    CloseBtn.TextScaled = true
+    CloseBtn.Font = Enum.Font.SourceSansBold
+    CloseBtn.Parent = TopBar
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        ScreenGui:Destroy()
+        MenuOpen = false
+    end)
+
+    -- Drag
+    TopBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = true
+            DragStart = input.Position
+            DragPos = MainFrame.Position
+        end
+    end)
+
+    TopBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and Dragging then
+            local delta = input.Position - DragStart
+            MainFrame.Position = UDim2.new(DragPos.X.Scale, DragPos.X.Offset + delta.X, DragPos.Y.Scale, DragPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = false
+        end
+    end)
+
+    -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+    local yPos = 40
+
+    local function CreateCheckbox(parent, text, yPos, getter, setter)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, -20, 0, 25)
+        bg.Position = UDim2.new(0, 10, 0, yPos)
+        bg.BackgroundTransparency = 1
+        bg.Parent = parent
+
+        local box = Instance.new("TextButton")
+        box.Size = UDim2.new(0, 20, 0, 20)
+        box.Position = UDim2.new(0, 0, 0.5, -10)
+        box.BackgroundColor3 = getter() and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
+        box.Text = ""
+        box.Parent = bg
+
+        local boxCorner = Instance.new("UICorner")
+        boxCorner.CornerRadius = UDim.new(0, 4)
+        boxCorner.Parent = box
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -30, 1, 0)
+        label.Position = UDim2.new(0, 30, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 16
+        label.Parent = bg
+
+        box.MouseButton1Click:Connect(function()
+            local new = not getter()
+            setter(new)
+            box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
+        end)
+
+        return bg
+    end
+
+    local function CreateSlider(parent, text, yPos, getter, setter, min, max, format)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, -20, 0, 40)
+        bg.Position = UDim2.new(0, 10, 0, yPos)
+        bg.BackgroundTransparency = 1
+        bg.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.BackgroundTransparency = 1
+        label.Text = text .. ": " .. string.format(format, getter())
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 16
+        label.Parent = bg
+
+        local sliderBg = Instance.new("Frame")
+        sliderBg.Size = UDim2.new(1, 0, 0, 10)
+        sliderBg.Position = UDim2.new(0, 0, 0, 25)
+        sliderBg.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        sliderBg.Parent = bg
+
+        local sliderCorner = Instance.new("UICorner")
+        sliderCorner.CornerRadius = UDim.new(0, 4)
+        sliderCorner.Parent = sliderBg
+
+        local fill = Instance.new("Frame")
+        fill.Size = UDim2.new((getter() - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        fill.Parent = sliderBg
+
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0, 4)
+        fillCorner.Parent = fill
+
+        local dragging = false
+        fill.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+
+        RunService.RenderStepped:Connect(function()
+            if dragging then
+                local mousePos = UserInputService:GetMouseLocation()
+                local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
+                local absSizeX = sliderBg.AbsoluteSize.X
+                local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+                local percent = relativeX / absSizeX
+                local value = min + (max - min) * percent
+                setter(value)
+                fill.Size = UDim2.new(percent, 0, 1, 0)
+                label.Text = text .. ": " .. string.format(format, value)
+            end
+        end)
+    end
+
+    local function CreateDropdown(parent, text, yPos, options, getter, setter)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, -20, 0, 30)
+        bg.Position = UDim2.new(0, 10, 0, yPos)
+        bg.BackgroundTransparency = 1
+        bg.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0, 80, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text .. ":"
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 16
+        label.Parent = bg
+
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(1, -90, 0, 25)
+        button.Position = UDim2.new(0, 85, 0.5, -12.5)
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        button.Text = getter()
+        button.TextColor3 = Color3.new(1, 1, 1)
+        button.Font = Enum.Font.SourceSans
+        button.TextSize = 16
+        button.Parent = bg
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 4)
+        btnCorner.Parent = button
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, #options * 25)
+        frame.Position = UDim2.new(0, 0, 0, 30)
+        frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        frame.BackgroundTransparency = 0.1
+        frame.Visible = false
+        frame.Parent = bg
+
+        local frmCorner = Instance.new("UICorner")
+        frmCorner.CornerRadius = UDim.new(0, 4)
+        frmCorner.Parent = frame
+
+        for i, opt in ipairs(options) do
+            local optBtn = Instance.new("TextButton")
+            optBtn.Size = UDim2.new(1, 0, 0, 25)
+            optBtn.Position = UDim2.new(0, 0, 0, (i-1)*25)
+            optBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            optBtn.Text = opt
+            optBtn.TextColor3 = Color3.new(1, 1, 1)
+            optBtn.Font = Enum.Font.SourceSans
+            optBtn.TextSize = 16
+            optBtn.Parent = frame
+
+            optBtn.MouseButton1Click:Connect(function()
+                setter(opt)
+                button.Text = opt
+                frame.Visible = false
+            end)
+        end
+
+        button.MouseButton1Click:Connect(function()
+            frame.Visible = not frame.Visible
+        end)
+    end
+
+    -- ===== ПОСТРОЕНИЕ МЕНЮ =====
+    CreateCheckbox(MainFrame, "ESP Enabled", yPos, 
+        function() return Settings.ESP_Enabled end,
+        function(v) Settings.ESP_Enabled = v; RefreshAllESP() end)
+    yPos = yPos + 35
+
+    CreateSlider(MainFrame, "ESP Transparency", yPos,
+        function() return Settings.ESP_Transparency end,
+        function(v) Settings.ESP_Transparency = v; UpdateESPTransparency() end,
+        0, 1, "%.1f")
+    yPos = yPos + 50
+
+    CreateCheckbox(MainFrame, "Aimbot Enabled", yPos,
+        function() return Settings.Aimbot_Enabled end,
+        function(v) Settings.Aimbot_Enabled = v end)
+    yPos = yPos + 35
+
+    CreateDropdown(MainFrame, "Target Mode", yPos,
+        {"3D", "FOV"},
+        function() return Settings.Aimbot_TargetMode end,
+        function(v) Settings.Aimbot_TargetMode = v end)
+    yPos = yPos + 40
+
+    CreateSlider(MainFrame, "FOV (FOV mode only)", yPos,
+        function() return Settings.Aimbot_FOV end,
+        function(v) Settings.Aimbot_FOV = v end,
+        30, 300, "%.0f")
+    yPos = yPos + 50
+
+    CreateCheckbox(MainFrame, "Team Check", yPos,
+        function() return Settings.Aimbot_TeamCheck end,
+        function(v) Settings.Aimbot_TeamCheck = v end)
+    yPos = yPos + 35
+
+    CreateCheckbox(MainFrame, "Wallbang (shoot through walls)", yPos,
+        function() return Settings.Aimbot_Wallbang end,
+        function(v) Settings.Aimbot_Wallbang = v end)
+    yPos = yPos + 35
+
+    CreateCheckbox(MainFrame, "No Recoil", yPos,
+        function() return Settings.Aimbot_NoRecoil end,
+        function(v) Settings.Aimbot_NoRecoil = v end)
+    yPos = yPos + 35
+
+    CreateCheckbox(MainFrame, "Rapid Fire", yPos,
+        function() return Settings.Aimbot_RapidFire end,
+        function(v) Settings.Aimbot_RapidFire = v end)
+    yPos = yPos + 35
+
+    CreateSlider(MainFrame, "Rapid Fire Delay", yPos,
+        function() return Settings.Aimbot_RapidFireDelay end,
+        function(v) Settings.Aimbot_RapidFireDelay = v end,
+        0.01, 0.2, "%.2fs")
+    yPos = yPos + 50
+
+    CreateCheckbox(MainFrame, "Auto Fire", yPos,
+        function() return Settings.Aimbot_AutoFire end,
+        function(v) Settings.Aimbot_AutoFire = v end)
+    yPos = yPos + 35
+
+    CreateCheckbox(MainFrame, "Silent Aim (no mouse move)", yPos,
+        function() return Settings.Aimbot_SilentAim end,
+        function(v) Settings.Aimbot_SilentAim = v end)
+    yPos = yPos + 35
+
+    -- НОВОЕ: Fast Bullets
+    CreateCheckbox(MainFrame, "Fast Bullets", yPos,
+        function() return Settings.FastBullets_Enabled end,
+        function(v) Settings.FastBullets_Enabled = v end)
+    yPos = yPos + 35
+
+    CreateSlider(MainFrame, "Bullet Speed Multiplier", yPos,
+        function() return Settings.FastBullets_Multiplier end,
+        function(v) Settings.FastBullets_Multiplier = v end,
+        2, 20, "%.0fx")
+    yPos = yPos + 50
+
+    local RefreshBtn = Instance.new("TextButton")
+    RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
+    RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
+    RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    RefreshBtn.Text = "REFRESH ESP"
+    RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
+    RefreshBtn.Font = Enum.Font.SourceSansBold
+    RefreshBtn.TextSize = 16
+    RefreshBtn.Parent = MainFrame
+
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 6)
+    BtnCorner.Parent = RefreshBtn
+
+    RefreshBtn.MouseButton1Click:Connect(RefreshAllESP)
+end
+
+-- ========== ESP ==========
+function UpdateESPTransparency()
+    for p, data in pairs(ESP_Cache) do
+        if data.Container then
+            for _, child in pairs(data.Container:GetChildren()) do
+                if child:IsA("BoxHandleAdornment") then
+                    child.Transparency = Settings.ESP_Transparency
+                end
+            end
+        end
+    end
+end
+
+function CreateESP(p)
+    if not Settings.ESP_Enabled then return end
+    local char = p.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    local hum = char:FindFirstChild("Humanoid")
+    if not head or not hum or hum.Health <= 0 then return end
+
+    local container = Instance.new("Folder")
+    container.Name = randomString(12)
+    container.Parent = CoreGui
+    if syn and syn.protect_gui then syn.protect_gui(container) elseif protect_gui then protect_gui(container) end
+
+    local adornments = {}
+    local function addBoxes()
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.Transparency < 1 then
+                local box = Instance.new("BoxHandleAdornment")
+                box.Name = randomString(8)
+                box.Adornee = part
+                box.AlwaysOnTop = true
+                box.ZIndex = 10
+                box.Size = part.Size * 1.15
+                box.Transparency = Settings.ESP_Transparency
+                box.Color = BrickColor.new(Settings.ESP_Color)
+                box.Parent = container
+                adornments[part] = box
+            end
+        end
+    end
+    addBoxes()
+
+    local connection
+    connection = char.ChildAdded:Connect(function(child)
+        if child:IsA("BasePart") and child.Transparency < 1 then
+            local box = Instance.new("BoxHandleAdornment")
+            box.Name = randomString(8)
+            box.Adornee = child
+            box.AlwaysOnTop = true
+            box.ZIndex = 10
+            box.Size = child.Size * 1.15
+            box.Transparency = Settings.ESP_Transparency
+            box.Color = BrickColor.new(Settings.ESP_Color)
+            box.Parent = container
+            adornments[child] = box
+        end
+    end)
+
+    ESP_Cache[p] = {
+        Container = container,
+        Head = head,
+        Connections = {connection},
+        Adornments = adornments,
+    }
+end
+
+function RemoveESP(p)
+    local data = ESP_Cache[p]
+    if data then
+        for _, conn in pairs(data.Connections) do conn:Disconnect() end
+        if data.Container then data.Container:Destroy() end
+        ESP_Cache[p] = nil
+    end
+end
+
+function RefreshAllESP()
+    for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then CreateESP(p) end
+    end
+end
+
+-- ========== СОБЫТИЯ ИГРОКОВ ==========
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    RemoveESP(p)
+    CreateESP(p)
+end
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then CreateESP(p) end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- ========== AIMBOT LOGIC ==========
+local function IsTeamMate(p)
+    if not Settings.Aimbot_TeamCheck then return false end
+    if not p.Team or not LocalPlayer.Team then return false end
+    return p.Team == LocalPlayer.Team
+end
+
+local function IsVisible(character)
+    if Settings.Aimbot_Wallbang then return true end  -- если включили, стреляем сквозь стены
+    -- По умолчанию false, значит стены защищают
+    local head = character:FindFirstChild("Head")
+    if not head then return false end
+    local origin = Camera.CFrame.Position
+    local direction = head.Position - origin
+    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
+    local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    return hit and hit:IsDescendantOf(character)
+end
+
+-- Получение цели: БЛИЖАЙШИЙ ПО 3D ДИСТАНЦИИ (по умолчанию)
+local function GetTarget()
+    if not Settings.Aimbot_Enabled then return nil end
+
+    local targets = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            if not IsTeamMate(p) and IsVisible(p.Character) then
+                local head = p.Character:FindFirstChild("Head")
+                if head then
+                    local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+                    local dist3D = myHead and (head.Position - myHead.Position).Magnitude or 9999
+                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    local dist2D = onScreen and (Vector2.new(vector.X, vector.Y) - UserInputService:GetMouseLocation()).Magnitude or 9999
+                    table.insert(targets, {
+                        player = p,
+                        head = head,
+                        dist3D = dist3D,
+                        dist2D = dist2D,
+                        onScreen = onScreen
+                    })
+                end
+            end
+        end
+    end
+
+    if #targets == 0 then return nil end
+
+    if Settings.Aimbot_TargetMode == "FOV" then
+        local best = nil
+        local bestDist = Settings.Aimbot_FOV
+        for _, t in ipairs(targets) do
+            if t.onScreen and t.dist2D < bestDist then
+                bestDist = t.dist2D
+                best = t.player
+            end
+        end
+        return best
+    else -- "3D"
+        table.sort(targets, function(a,b) return a.dist3D < b.dist3D end)
+        return targets[1] and targets[1].player or nil
+    end
+end
+
+-- ========== AIMBOT EXECUTION ==========
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.UserInputType == Settings.Aimbot_Key then
+        IsKeyHolding = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Settings.Aimbot_Key then
+        IsKeyHolding = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    -- No Recoil
+    ApplyNoRecoil()
+    -- Fast Bullets
+    ApplyFastBullets()
+
+    if not Settings.Aimbot_Enabled or not IsKeyHolding then
+        AimTarget = nil
+        return
+    end
+
+    AimTarget = GetTarget()
+    if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
+        local head = AimTarget.Character.Head
+        local vector = Camera:WorldToViewportPoint(head.Position)
+        local targetPos = Vector2.new(vector.X, vector.Y)
+
+        -- МГНОВЕННОЕ НАВЕДЕНИЕ (без Lerp, без плавности)
+        if not Settings.Aimbot_SilentAim then
+            local currentPos = UserInputService:GetMouseLocation()
+            local delta = targetPos - currentPos
+            if mousemoverel then
+                mousemoverel(delta.X, delta.Y)
+            elseif syn and syn.input then
+                syn.input.MouseMove(delta.X, delta.Y)
+            end
+        end
+
+        -- Автоогонь / Rapid Fire
+        if Settings.Aimbot_AutoFire or Settings.Aimbot_RapidFire then
+            local now = tick()
+            if now - LastShotTime >= Settings.Aimbot_RapidFireDelay then
+                if mousemoverel then
+                    mouse1click()
+                elseif syn and syn.input then
+                    syn.input.Mouse1Click()
+                end
+                LastShotTime = now
+            end
+        end
+    end
+end)
+
+-- ========== ЗАПУСК ==========
+CreateMenu()
+RefreshAllESP()
+print("✅ ESP + Aimbot (ближайший враг, стены защищают, быстрые пули) активирован. Удерживайте ПКМ.")
