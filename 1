@@ -29,7 +29,7 @@ local Settings = {
     -- Aimbot
     Aimbot_Enabled = true,
     TeamCheck = true,
-    VisibleCheck = true,      -- всегда true (нет wallbang)
+    Wallbang = true,           -- теперь включён по умолчанию!
     Smoothness = 1,           -- 1 = мгновенно
     FOV = 120,
     -- Rapid Fire
@@ -44,6 +44,8 @@ local Settings = {
     -- Fast Walk
     FastWalk_Enabled = true,
     WalkSpeed = 32,
+    -- Infinite Ammo
+    InfiniteAmmo = true,
 }
 
 -- ===== ПРЕСЕТЫ РЕЖИМОВ =====
@@ -51,7 +53,7 @@ local Presets = {
     Rage = {
         Aimbot_Enabled = true,
         Smoothness = 1,
-        VisibleCheck = true,
+        Wallbang = true,
         NoRecoil = true,
         RapidFire = true,
         RapidFireDelay = 0.02,
@@ -60,22 +62,24 @@ local Presets = {
         FastBullets_Multiplier = 5,
         FastWalk_Enabled = true,
         WalkSpeed = 32,
+        InfiniteAmmo = true,
     },
     Legit = {
         Aimbot_Enabled = true,
         Smoothness = 15,
-        VisibleCheck = true,
+        Wallbang = false,
         NoRecoil = false,
         RapidFire = false,
         AutoFire = false,
         FastBullets_Enabled = false,
         FastWalk_Enabled = true,
         WalkSpeed = 22,
+        InfiniteAmmo = false,
     },
     HVH = {
         Aimbot_Enabled = true,
         Smoothness = 1,
-        VisibleCheck = true,
+        Wallbang = true,
         NoRecoil = true,
         RapidFire = true,
         RapidFireDelay = 0.015,
@@ -84,6 +88,7 @@ local Presets = {
         FastBullets_Multiplier = 8,
         FastWalk_Enabled = true,
         WalkSpeed = 40,
+        InfiniteAmmo = true,
     },
 }
 
@@ -94,7 +99,47 @@ local CurrentTarget = nil
 local LastShotTime = 0
 local LastRecoilTime = 0
 local LastFastBulletTime = 0
+local LastInfiniteAmmoTime = 0
 local CurrentMode = "HVH"
+
+-- ===== INFINITE AMMO =====
+local function ApplyInfiniteAmmo()
+    if not Settings.InfiniteAmmo then return end
+    local now = tick()
+    if now - LastInfiniteAmmoTime < 0.2 then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool") or char:FindFirstChildWhichIsA("Tool")
+    if tool then
+        -- Наиболее частые названия свойств/объектов патронов
+        local ammoProps = {"Ammo", "CurrentAmmo", "Clip", "Magazine", "ReserveAmmo", "MaxAmmo"}
+        for _, prop in ipairs(ammoProps) do
+            pcall(function()
+                if tool:FindFirstChild(prop) then
+                    tool[prop].Value = 9999
+                end
+                if tool[prop] ~= nil then
+                    if type(tool[prop]) == "number" then
+                        tool[prop] = 9999
+                    end
+                end
+            end)
+        end
+        -- Для некоторых игр
+        pcall(function()
+            if tool:FindFirstChild("Configuration") then
+                local config = tool:FindFirstChild("Configuration")
+                if config:FindFirstChild("AmmoCount") then
+                    config.AmmoCount.Value = 9999
+                end
+                if config:FindFirstChild("MaxAmmo") then
+                    config.MaxAmmo.Value = 9999
+                end
+            end
+        end)
+    end
+    LastInfiniteAmmoTime = now
+end
 
 -- ===== FAST WALK =====
 local function UpdateWalkSpeed()
@@ -291,7 +336,7 @@ local function IsTeamMate(p)
 end
 
 local function IsVisible(character)
-    if not Settings.VisibleCheck then return true end
+    if Settings.Wallbang then return true end
     local head = character:FindFirstChild("Head")
     if not head then return false end
     local origin = Camera.CFrame.Position
@@ -373,6 +418,7 @@ RunService.RenderStepped:Connect(function()
     UpdateWalkSpeed()
     ApplyNoRecoil()
     ApplyFastBullets()
+    ApplyInfiniteAmmo()
 
     local now = tick()
 
@@ -409,7 +455,7 @@ elseif protect_gui then
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 280, 0, 500)
+MainFrame.Size = UDim2.new(0, 300, 0, 620)
 MainFrame.Position = UDim2.new(0, 50, 0, 50)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.2
@@ -435,7 +481,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1,-40,1,0)
 Title.Position = UDim2.new(0,10,0,0)
 Title.BackgroundTransparency = 1
-Title.Text = "HVH CHEAT (NO WALLBANG)"
+Title.Text = "HVH CHEAT (FULL)"
 Title.TextColor3 = Color3.new(1,1,1)
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.SourceSansBold
@@ -598,7 +644,7 @@ CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function
 yPos = yPos + 30
 CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end, 60)
 yPos = yPos + 30
-CreateCheckbox("Visible Check", function() return Settings.VisibleCheck end, function(v) Settings.VisibleCheck = v end, 90)
+CreateCheckbox("Wallbang", function() return Settings.Wallbang end, function(v) Settings.Wallbang = v end, 90)
 yPos = yPos + 30
 CreateCheckbox("No Recoil", function() return Settings.NoRecoil end, function(v) Settings.NoRecoil = v end, 120)
 yPos = yPos + 30
@@ -609,6 +655,8 @@ yPos = yPos + 30
 CreateCheckbox("Fast Bullets", function() return Settings.FastBullets_Enabled end, function(v) Settings.FastBullets_Enabled = v end, 210)
 yPos = yPos + 30
 CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 240)
+yPos = yPos + 30
+CreateCheckbox("Infinite Ammo", function() return Settings.InfiniteAmmo end, function(v) Settings.InfiniteAmmo = v end, 270)
 yPos = yPos + 30
 
 -- ===== СЛАЙДЕРЫ =====
@@ -691,4 +739,4 @@ yPos = yPos + 50
 -- ===== ЗАПУСК =====
 SetMode("HVH")
 RefreshAllESP()
-print("✅ HVH Cheat (NO WALLBANG) loaded. Hold RMB to aim. Mode: HVH")
+print("✅ FULL HVH: Aimbot (100% head) + Wallbang + Infinite Ammo + Rapid Fire + No Recoil + Fast Bullets + Fast Walk. Hold RMB.")
