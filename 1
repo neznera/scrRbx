@@ -13,6 +13,39 @@ end
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- ========== ПРОВЕРКА ПОДДЕРЖКИ DRAWING ==========
+local DrawingSupported = pcall(Drawing.new, "Square")
+
+-- ========== УНИВЕРСАЛЬНЫЙ МЕТОД ДВИЖЕНИЯ МЫШИ ==========
+local function MoveMouse(deltaX, deltaY)
+    if mousemoverel then
+        mousemoverel(deltaX, deltaY)
+        return true
+    elseif syn and syn.input then
+        syn.input.MouseMove(deltaX, deltaY)
+        return true
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
+        return true
+    end
+    return false
+end
+
+local function ClickMouse()
+    if mouse1click then
+        mouse1click()
+        return true
+    elseif syn and syn.input then
+        syn.input.Mouse1Click()
+        return true
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+        return true
+    end
+    return false
+end
+
 -- ========== СЛУЧАЙНЫЕ ИМЕНА ==========
 local function randomString(len)
     local str = ""
@@ -22,66 +55,316 @@ local function randomString(len)
     return str
 end
 
--- ========== НАСТРОЙКИ ПО УМОЛЧАНИЮ ==========
+-- ========== НАСТРОЙКИ ==========
 local Settings = {
     -- ESP
     ESP_Enabled = true,
     ESP_Transparency = 0.4,
-    ESP_Color = Color3.fromRGB(255, 255, 0), -- жёлтый
+    ESP_Color = Color3.fromRGB(255, 255, 0),
 
     -- Aimbot
     Aimbot_Enabled = true,
-    Aimbot_Key = Enum.UserInputType.MouseButton2, -- правая кнопка мыши
-    Aimbot_TargetMode = "3D",                    -- "FOV" или "3D"
-    Aimbot_FOV = 120,                            -- только для FOV режима
+    Aimbot_Key = Enum.UserInputType.MouseButton2,
+    Aimbot_TargetMode = "3D",           -- "3D" или "FOV"
+    Aimbot_FOV = 120,
     Aimbot_TeamCheck = true,
-    Aimbot_Wallbang = false,                    -- игнорировать стены
+    Aimbot_Wallbang = false,
     Aimbot_NoRecoil = true,
     Aimbot_RapidFire = true,
-    Aimbot_RapidFireDelay = 0.05,              -- задержка между выстрелами (сек)
-    Aimbot_AutoFire = true,                    -- автоматический клик при наведении
-    Aimbot_SilentAim = false,                  -- не двигать мышь
+    Aimbot_RapidFireDelay = 0.07,
+    Aimbot_AutoFire = true,
+    Aimbot_SilentAim = false,
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
 local ESP_Cache = setmetatable({}, {__mode = "v"})
-local MenuOpen = true
-local Dragging = false
-local DragStart, DragPos
+local DrawingBoxes = {}
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
+local LastTargetUpdate = 0
+local TARGET_UPDATE_RATE = 0.2
+local MenuOpen = true
+local Dragging = false
+local DragStart, DragPos
+local LastRecoilReset = 0
 
--- ========== ДЛЯ NO RECOIL ==========
+-- ========== NO RECOIL (ПРИ КАЖДОМ ВЫСТРЕЛЕ) ==========
 local function ApplyNoRecoil()
     if not Settings.Aimbot_NoRecoil then return end
-    
-    -- Сброс отдачи камеры (стандартный метод)
-    if Camera and Camera.CFrame then
-        -- Небольшой фикс: многие игры дергают камеру, мы её возвращаем
-        -- Этот код нужно вызывать после каждого выстрела, поэтому лучше в RenderStepped
-    end
-    
-    -- Попытка найти текущее оружие и обнулить его свойства отдачи
+    local now = tick()
+    if now - LastRecoilReset < 0.1 then return end -- не спамим
+
     local character = LocalPlayer.Character
-    if character then
-        local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
-        if tool then
-            -- Общие названия свойств отдачи
-            local recoilProps = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin"}
-            for _, propName in ipairs(recoilProps) do
-                pcall(function()
-                    if tool:FindFirstChild(propName) then
-                        tool[propName].Value = 0
+    if not character then return end
+    local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
+    if tool then
+        local recoilProps = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin", "Shake", "Sway"}
+        for _, prop in ipairs(recoilProps) do
+            pcall(function()
+                if tool:FindFirstChild(prop) then
+                    tool[prop].Value = 0
+                end
+                if tool[prop] ~= nil then
+                    tool[prop] = 0
+                end
+            end)
+        end
+    end
+    LastRecoilReset = now
+end
+
+-- ========== ESP (2D DRAWING) ==========
+if DrawingSupported then
+    local function UpdateDrawingESP()
+        if not Settings.ESP_Enabled then
+            for _, box in pairs(DrawingBoxes) do
+                if box then box.Visible = false end
+            end
+            return
+        end
+
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                local root = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso") or p.Character:FindFirstChild("UpperTorso")
+                if root then
+                    local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                    if onScreen then
+                        local dist = (Camera.CFrame.Position - root.Position).Magnitude
+                        local scale = math.clamp(600 / dist, 0.6, 2)
+                        local width = 40 * scale
+                        local height = 70 * scale
+                        local x = pos.X - width/2
+                        local y = pos.Y - height/2
+
+                        if not DrawingBoxes[p] then
+                            DrawingBoxes[p] = Drawing.new("Square")
+                            DrawingBoxes[p].Thickness = 2
+                            DrawingBoxes[p].Filled = false
+                            DrawingBoxes[p].ZIndex = 5
+                        end
+                        local box = DrawingBoxes[p]
+                        box.Visible = true
+                        box.Size = Vector2.new(width, height)
+                        box.Position = Vector2.new(x, y)
+                        box.Color = Settings.ESP_Color
+                        box.Transparency = Settings.ESP_Transparency
+                    else
+                        if DrawingBoxes[p] then
+                            DrawingBoxes[p].Visible = false
+                        end
                     end
-                    if tool[propName] ~= nil then
-                        tool[propName] = 0
-                    end
-                end)
+                end
+            else
+                if DrawingBoxes[p] then
+                    DrawingBoxes[p].Visible = false
+                end
             end
         end
     end
+
+    RunService.RenderStepped:Connect(UpdateDrawingESP)
+
+    Players.PlayerRemoving:Connect(function(p)
+        if DrawingBoxes[p] then
+            DrawingBoxes[p]:Remove()
+            DrawingBoxes[p] = nil
+        end
+    end)
+else
+    -- ========== ESP (3D, ОДИН БОКС) ==========
+    print("⚠️ Drawing не поддерживается, использую 3D боксы")
+    local ESP_Folder = Instance.new("Folder")
+    ESP_Folder.Name = "ESP_" .. randomString(6)
+    ESP_Folder.Parent = CoreGui
+
+    function CreateESP(p)
+        if not Settings.ESP_Enabled then return end
+        local char = p.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+        if not root then return end
+
+        local box = Instance.new("BoxHandleAdornment")
+        box.Name = randomString(8)
+        box.Adornee = root
+        box.AlwaysOnTop = true
+        box.ZIndex = 10
+        box.Size = root.Size * 1.8
+        box.Transparency = Settings.ESP_Transparency
+        box.Color = BrickColor.new(Settings.ESP_Color)
+        box.Parent = ESP_Folder
+        ESP_Cache[p] = {Container = box}
+    end
+
+    function RemoveESP(p)
+        if ESP_Cache[p] and ESP_Cache[p].Container then
+            ESP_Cache[p].Container:Destroy()
+            ESP_Cache[p] = nil
+        end
+    end
+
+    function RefreshAllESP()
+        for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then CreateESP(p) end
+        end
+    end
+
+    function UpdateESPTransparency()
+        for p, data in pairs(ESP_Cache) do
+            if data.Container then
+                data.Container.Transparency = Settings.ESP_Transparency
+            end
+        end
+    end
+
+    local function onCharacterAdded(p, char)
+        if p == LocalPlayer then return end
+        RemoveESP(p)
+        CreateESP(p)
+    end
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if p.Character then CreateESP(p) end
+            p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+            p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+        end
+    end
+
+    Players.PlayerAdded:Connect(function(p)
+        if p == LocalPlayer then return end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end)
+
+    Players.PlayerRemoving:Connect(RemoveESP)
 end
+
+-- ========== AIMBOT LOGIC ==========
+local function IsTeamMate(p)
+    if not Settings.Aimbot_TeamCheck then return false end
+    if not p.Team or not LocalPlayer.Team then return false end
+    return p.Team == LocalPlayer.Team
+end
+
+local function IsVisible(character)
+    if Settings.Aimbot_Wallbang then return true end
+    local head = character:FindFirstChild("Head")
+    if not head then return false end
+    local origin = Camera.CFrame.Position
+    local direction = head.Position - origin
+    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    return hit and hit:IsDescendantOf(character)
+end
+
+local function GetTarget()
+    if not Settings.Aimbot_Enabled then return nil end
+
+    local targets = {}
+    local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            if not IsTeamMate(p) and IsVisible(p.Character) then
+                local head = p.Character:FindFirstChild("Head")
+                if head then
+                    local dist3D = myHead and (head.Position - myHead.Position).Magnitude or math.huge
+                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    local dist2D = onScreen and (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude or math.huge
+                    table.insert(targets, {
+                        player = p,
+                        head = head,
+                        dist3D = dist3D,
+                        dist2D = dist2D,
+                        onScreen = onScreen
+                    })
+                end
+            end
+        end
+    end
+
+    if #targets == 0 then return nil end
+
+    if Settings.Aimbot_TargetMode == "FOV" then
+        local best = nil
+        local bestDist = Settings.Aimbot_FOV
+        for _, t in ipairs(targets) do
+            if t.onScreen and t.dist2D < bestDist then
+                bestDist = t.dist2D
+                best = t.player
+            end
+        end
+        return best
+    else
+        table.sort(targets, function(a,b) return a.dist3D < b.dist3D end)
+        return targets[1].player
+    end
+end
+
+-- ========== AIMBOT EXECUTION ==========
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.UserInputType == Settings.Aimbot_Key then
+        IsKeyHolding = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Settings.Aimbot_Key then
+        IsKeyHolding = false
+        AimTarget = nil
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    -- No Recoil (сбрасываем при каждом выстреле)
+    if Settings.Aimbot_NoRecoil and (Settings.Aimbot_RapidFire or Settings.Aimbot_AutoFire) then
+        ApplyNoRecoil()
+    end
+
+    local now = tick()
+
+    -- Обновление цели (не каждый кадр)
+    if Settings.Aimbot_Enabled and IsKeyHolding then
+        if now - LastTargetUpdate >= TARGET_UPDATE_RATE then
+            AimTarget = GetTarget()
+            LastTargetUpdate = now
+        end
+    else
+        AimTarget = nil
+    end
+
+    -- Наведение и стрельба
+    if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
+        local head = AimTarget.Character.Head
+        local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+        if onScreen then
+            local targetPos = Vector2.new(vector.X, vector.Y)
+
+            -- Move mouse
+            if not Settings.Aimbot_SilentAim then
+                local currentPos = UserInputService:GetMouseLocation()
+                local delta = targetPos - currentPos
+                if delta.Magnitude > 0.5 then
+                    MoveMouse(delta.X, delta.Y)
+                end
+            end
+
+            -- Auto Fire / Rapid Fire
+            if Settings.Aimbot_AutoFire or Settings.Aimbot_RapidFire then
+                if now - LastShotTime >= Settings.Aimbot_RapidFireDelay then
+                    ClickMouse()
+                    LastShotTime = now
+                end
+            end
+        end
+    end
+end)
 
 -- ========== МЕНЮ ==========
 local function CreateMenu()
@@ -123,7 +406,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aim God"
+    Title.Text = "ESP + Aimbot (FIXED)"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -145,7 +428,7 @@ local function CreateMenu()
         MenuOpen = false
     end)
 
-    -- Drag
+    -- Перетаскивание
     TopBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             Dragging = true
@@ -167,7 +450,7 @@ local function CreateMenu()
         end
     end)
 
-    -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+    -- ===== ЭЛЕМЕНТЫ МЕНЮ =====
     local yPos = 40
 
     local function CreateCheckbox(parent, text, yPos, getter, setter)
@@ -204,8 +487,6 @@ local function CreateMenu()
             setter(new)
             box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
         end)
-
-        return bg
     end
 
     local function CreateSlider(parent, text, yPos, getter, setter, min, max, format)
@@ -337,15 +618,15 @@ local function CreateMenu()
         end)
     end
 
-    -- ===== ПОСТРОЕНИЕ МЕНЮ =====
+    -- === ПОСТРОЕНИЕ ===
     CreateCheckbox(MainFrame, "ESP Enabled", yPos, 
         function() return Settings.ESP_Enabled end,
-        function(v) Settings.ESP_Enabled = v; RefreshAllESP() end)
+        function(v) Settings.ESP_Enabled = v end)
     yPos = yPos + 35
 
     CreateSlider(MainFrame, "ESP Transparency", yPos,
         function() return Settings.ESP_Transparency end,
-        function(v) Settings.ESP_Transparency = v; UpdateESPTransparency() end,
+        function(v) Settings.ESP_Transparency = v end,
         0, 1, "%.1f")
     yPos = yPos + 50
 
@@ -371,7 +652,7 @@ local function CreateMenu()
         function(v) Settings.Aimbot_TeamCheck = v end)
     yPos = yPos + 35
 
-    CreateCheckbox(MainFrame, "Wallbang (ignore walls)", yPos,
+    CreateCheckbox(MainFrame, "Wallbang", yPos,
         function() return Settings.Aimbot_Wallbang end,
         function(v) Settings.Aimbot_Wallbang = v end)
     yPos = yPos + 35
@@ -397,7 +678,7 @@ local function CreateMenu()
         function(v) Settings.Aimbot_AutoFire = v end)
     yPos = yPos + 35
 
-    CreateCheckbox(MainFrame, "Silent Aim (no mouse move)", yPos,
+    CreateCheckbox(MainFrame, "Silent Aim", yPos,
         function() return Settings.Aimbot_SilentAim end,
         function(v) Settings.Aimbot_SilentAim = v end)
     yPos = yPos + 45
@@ -416,236 +697,16 @@ local function CreateMenu()
     BtnCorner.CornerRadius = UDim.new(0, 6)
     BtnCorner.Parent = RefreshBtn
 
-    RefreshBtn.MouseButton1Click:Connect(RefreshAllESP)
-end
-
--- ========== ESP ==========
-function UpdateESPTransparency()
-    for p, data in pairs(ESP_Cache) do
-        if data.Container then
-            for _, child in pairs(data.Container:GetChildren()) do
-                if child:IsA("BoxHandleAdornment") then
-                    child.Transparency = Settings.ESP_Transparency
-                end
-            end
-        end
-    end
-end
-
-function CreateESP(p)
-    if not Settings.ESP_Enabled then return end
-    local char = p.Character
-    if not char then return end
-    local head = char:FindFirstChild("Head")
-    local hum = char:FindFirstChild("Humanoid")
-    if not head or not hum or hum.Health <= 0 then return end
-
-    local container = Instance.new("Folder")
-    container.Name = randomString(12)
-    container.Parent = CoreGui
-    if syn and syn.protect_gui then syn.protect_gui(container) elseif protect_gui then protect_gui(container) end
-
-    local adornments = {}
-    local function addBoxes()
-        for _, part in pairs(char:GetChildren()) do
-            if part:IsA("BasePart") and part.Transparency < 1 then
-                local box = Instance.new("BoxHandleAdornment")
-                box.Name = randomString(8)
-                box.Adornee = part
-                box.AlwaysOnTop = true
-                box.ZIndex = 10
-                box.Size = part.Size * 1.15
-                box.Transparency = Settings.ESP_Transparency
-                box.Color = BrickColor.new(Settings.ESP_Color)
-                box.Parent = container
-                adornments[part] = box
-            end
-        end
-    end
-    addBoxes()
-
-    local connection
-    connection = char.ChildAdded:Connect(function(child)
-        if child:IsA("BasePart") and child.Transparency < 1 then
-            local box = Instance.new("BoxHandleAdornment")
-            box.Name = randomString(8)
-            box.Adornee = child
-            box.AlwaysOnTop = true
-            box.ZIndex = 10
-            box.Size = child.Size * 1.15
-            box.Transparency = Settings.ESP_Transparency
-            box.Color = BrickColor.new(Settings.ESP_Color)
-            box.Parent = container
-            adornments[child] = box
+    RefreshBtn.MouseButton1Click:Connect(function()
+        if not DrawingSupported then
+            RefreshAllESP()
         end
     end)
-
-    ESP_Cache[p] = {
-        Container = container,
-        Head = head,
-        Connections = {connection},
-        Adornments = adornments,
-    }
 end
-
-function RemoveESP(p)
-    local data = ESP_Cache[p]
-    if data then
-        for _, conn in pairs(data.Connections) do conn:Disconnect() end
-        if data.Container then data.Container:Destroy() end
-        ESP_Cache[p] = nil
-    end
-end
-
-function RefreshAllESP()
-    for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then CreateESP(p) end
-    end
-end
-
--- ========== СОБЫТИЯ ИГРОКОВ ==========
-local function onCharacterAdded(p, char)
-    if p == LocalPlayer then return end
-    RemoveESP(p)
-    CreateESP(p)
-end
-
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then CreateESP(p) end
-        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-    end
-end
-
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-end)
-
-Players.PlayerRemoving:Connect(RemoveESP)
-
--- ========== AIMBOT LOGIC ==========
-local function IsTeamMate(p)
-    if not Settings.Aimbot_TeamCheck then return false end
-    if not p.Team or not LocalPlayer.Team then return false end
-    return p.Team == LocalPlayer.Team
-end
-
-local function IsVisible(character)
-    if Settings.Aimbot_Wallbang then return true end  -- игнорируем стены
-    if not Settings.Aimbot_VisibleCheck then return true end
-    local head = character:FindFirstChild("Head")
-    if not head then return false end
-    local origin = Camera.CFrame.Position
-    local direction = head.Position - origin
-    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
-    local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
-    return hit and hit:IsDescendantOf(character)
-end
-
--- Получение цели в зависимости от режима
-local function GetTarget()
-    if not Settings.Aimbot_Enabled then return nil end
-
-    local targets = {}
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            if not IsTeamMate(p) and IsVisible(p.Character) then
-                local head = p.Character:FindFirstChild("Head")
-                if head then
-                    local dist3D = (head.Position - (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") and LocalPlayer.Character.Head.Position or Vector3.new())).Magnitude
-                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
-                    local dist2D = onScreen and (Vector2.new(vector.X, vector.Y) - UserInputService:GetMouseLocation()).Magnitude or 9999
-                    table.insert(targets, {
-                        player = p,
-                        head = head,
-                        dist3D = dist3D,
-                        dist2D = dist2D,
-                        onScreen = onScreen
-                    })
-                end
-            end
-        end
-    end
-
-    if #targets == 0 then return nil end
-
-    if Settings.Aimbot_TargetMode == "FOV" then
-        -- Ближайший к прицелу в пределах FOV
-        local best = nil
-        local bestDist = Settings.Aimbot_FOV
-        for _, t in ipairs(targets) do
-            if t.onScreen and t.dist2D < bestDist then
-                bestDist = t.dist2D
-                best = t.player
-            end
-        end
-        return best
-    else -- "3D"
-        -- Самый ближний по 3D дистанции
-        table.sort(targets, function(a,b) return a.dist3D < b.dist3D end)
-        return targets[1] and targets[1].player or nil
-    end
-end
-
--- ========== AIMBOT EXECUTION ==========
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.UserInputType == Settings.Aimbot_Key then
-        IsKeyHolding = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if input.UserInputType == Settings.Aimbot_Key then
-        IsKeyHolding = false
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    -- No Recoil (постоянно пытаемся сбросить отдачу)
-    ApplyNoRecoil()
-
-    if not Settings.Aimbot_Enabled or not IsKeyHolding then
-        AimTarget = nil
-        return
-    end
-
-    AimTarget = GetTarget()
-    if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
-        local head = AimTarget.Character.Head
-        local vector = Camera:WorldToViewportPoint(head.Position)
-        local targetPos = Vector2.new(vector.X, vector.Y)
-
-        -- Наведение мыши (если не Silent Aim)
-        if not Settings.Aimbot_SilentAim then
-            local currentPos = UserInputService:GetMouseLocation()
-            local delta = targetPos - currentPos
-            if mousemoverel then
-                mousemoverel(delta.X, delta.Y)
-            elseif syn and syn.input then
-                syn.input.MouseMove(delta.X, delta.Y)
-            end
-        end
-
-        -- Автоогонь / Rapid Fire
-        if Settings.Aimbot_AutoFire or Settings.Aimbot_RapidFire then
-            local now = tick()
-            if now - LastShotTime >= Settings.Aimbot_RapidFireDelay then
-                if mousemoverel then
-                    mouse1click()
-                elseif syn and syn.input then
-                    syn.input.Mouse1Click()
-                end
-                LastShotTime = now
-            end
-        end
-    end
-end)
 
 -- ========== ЗАПУСК ==========
 CreateMenu()
-RefreshAllESP()
-print("✅ ESP + Aimbot God Mode активирован. Удерживайте ПКМ для наведения. Wallbang, No Recoil, Rapid Fire включены по желанию.")
+if not DrawingSupported then
+    RefreshAllESP()
+end
+print("✅ ESP + Aimbot ИСПРАВЛЕН. Удерживайте ПКМ для наведения. Стреляет быстро, без отдачи, стены игнорируются при включении Wallbang.")
