@@ -61,7 +61,7 @@ local Settings = {
     -- Aimbot
     Aimbot_Enabled = true,
     Aimbot_Key = Enum.UserInputType.MouseButton2,
-    Aimbot_TargetMode = "3D",           -- "3D" или "FOV"
+    Aimbot_TargetMode = "3D",
     Aimbot_FOV = 120,
     Aimbot_TeamCheck = true,
     Aimbot_Wallbang = false,
@@ -74,10 +74,15 @@ local Settings = {
     -- Fast Bullets
     FastBullets_Enabled = true,
     FastBullets_Multiplier = 5,
+
+    -- FLY (undetected)
+    Fly_Enabled = false,
+    Fly_Key = Enum.KeyCode.F,              -- клавиша включения/выключения
+    Fly_Speed = 50,
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
-local ESP_Cache = setmetatable({}, {__mode = "v"})  -- для BillboardGui на голову
+local ESP_Cache = setmetatable({}, {__mode = "v"})
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
@@ -88,6 +93,12 @@ local Dragging = false
 local DragStart, DragPos
 local LastRecoilReset = 0
 local LastFastBulletApply = 0
+
+-- ========== ПЕРЕМЕННЫЕ ДЛЯ FLY ==========
+local FlyActive = false
+local FlyBodyVelocity = nil
+local FlyBodyGyro = nil
+local FlyConnection = nil
 
 -- ========== FAST BULLETS ==========
 local function ApplyFastBullets()
@@ -156,7 +167,6 @@ local function ApplyNoRecoil()
 end
 
 -- ========== ESP (ТОЛЬКО ГОЛОВА, КРУГ) ==========
--- Проверка, враг ли игрок
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.Aimbot_TeamCheck then
@@ -167,7 +177,6 @@ local function IsEnemy(p)
     end
 end
 
--- Создание круга на голову
 local function CreateHeadESP(p)
     if not Settings.ESP_Enabled then return end
     if not IsEnemy(p) then return end
@@ -179,42 +188,35 @@ local function CreateHeadESP(p)
     local hum = char:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый ESP, если есть
     if ESP_Cache[p] and ESP_Cache[p].Billboard then
         ESP_Cache[p].Billboard:Destroy()
         ESP_Cache[p] = nil
     end
 
-    -- Создаём BillboardGui с кругом
     local billboard = Instance.new("BillboardGui")
     billboard.Name = randomString(12)
     billboard.Adornee = head
-    billboard.Size = UDim2.new(1.5, 0, 1.5, 0)  -- размер круга относительно головы
-    billboard.StudsOffset = Vector3.new(0, 0.5, 0)  -- чуть выше
+    billboard.Size = UDim2.new(1.5, 0, 1.5, 0)
+    billboard.StudsOffset = Vector3.new(0, 0.5, 0)
     billboard.AlwaysOnTop = true
     billboard.LightInfluence = 0
     billboard.Parent = CoreGui
 
-    -- Защита
     if syn and syn.protect_gui then
         syn.protect_gui(billboard)
     elseif protect_gui then
         protect_gui(billboard)
     end
 
-    -- Круг (ImageLabel с круглой картинкой)
     local circle = Instance.new("ImageLabel")
     circle.Name = randomString(8)
     circle.Size = UDim2.new(1, 0, 1, 0)
     circle.BackgroundTransparency = 1
-    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"  -- круглый placeholder
+    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
     circle.ImageColor3 = Settings.ESP_Color
     circle.ImageTransparency = 0.3
     circle.ScaleType = Enum.ScaleType.Fit
     circle.Parent = billboard
-
-    -- Можно добавить обводку или эффект свечения
-    -- Для простоты оставим так
 
     ESP_Cache[p] = {
         Billboard = billboard,
@@ -239,11 +241,9 @@ local function UpdateESPColor(p)
         RemoveESP(p)
         return
     end
-    -- Если враг, но ESP нет — создаём
     if not ESP_Cache[p] then
         CreateHeadESP(p)
     else
-        -- Обновляем цвет круга
         local circle = ESP_Cache[p].Circle
         if circle then
             circle.ImageColor3 = Settings.ESP_Color
@@ -261,6 +261,159 @@ local function RefreshAllESP()
         end
     end
 end
+
+-- ========== FLY (UNDETECTED) ==========
+local function StartFly()
+    if FlyActive then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not root or not humanoid then return end
+
+    -- Отключаем стандартную физику, но не через PlatformStand (античит может заметить)
+    -- Вместо этого используем BodyVelocity и BodyGyro с низким приоритетом
+    -- Также включаем noclip через отключение CanCollide на всех частях
+
+    -- Noclip
+    for _, part in pairs(character:GetChildren()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+
+    -- BodyVelocity
+    FlyBodyVelocity = Instance.new("BodyVelocity")
+    FlyBodyVelocity.Name = randomString(8)
+    FlyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+    FlyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    FlyBodyVelocity.P = 1250
+    FlyBodyVelocity.Parent = root
+
+    -- BodyGyro (для удержания ориентации)
+    FlyBodyGyro = Instance.new("BodyGyro")
+    FlyBodyGyro.Name = randomString(8)
+    FlyBodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
+    FlyBodyGyro.P = 1000
+    FlyBodyGyro.D = 500
+    FlyBodyGyro.CFrame = root.CFrame
+    FlyBodyGyro.Parent = root
+
+    -- Защита объектов
+    if syn and syn.protect_gui then
+        syn.protect_gui(FlyBodyVelocity)
+        syn.protect_gui(FlyBodyGyro)
+    elseif protect_gui then
+        protect_gui(FlyBodyVelocity)
+        protect_gui(FlyBodyGyro)
+    end
+
+    -- Смена владельца сети (чтобы сервер меньше проверял)
+    root:SetNetworkOwner(LocalPlayer)
+
+    -- Управление в Heartbeat
+    FlyConnection = RunService.Heartbeat:Connect(function()
+        if not FlyActive or not character or not root or not humanoid then
+            StopFly()
+            return
+        end
+
+        -- Обновление noclip (некоторые игры восстанавливают CanCollide)
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+
+        -- Направление от камеры
+        local moveDirection = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveDirection = moveDirection + Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveDirection = moveDirection - Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveDirection = moveDirection - Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveDirection = moveDirection + Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveDirection = moveDirection + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            moveDirection = moveDirection - Vector3.new(0, 1, 0)
+        end
+
+        if moveDirection.Magnitude > 0 then
+            moveDirection = moveDirection.Unit * Settings.Fly_Speed
+        end
+
+        -- Применяем скорость
+        FlyBodyVelocity.Velocity = moveDirection
+
+        -- Держим ориентацию по камере (горизонтально)
+        local lookCF = CFrame.lookAt(Vector3.new(), Camera.CFrame.LookVector)
+        FlyBodyGyro.CFrame = lookCF
+    end)
+
+    FlyActive = true
+end
+
+local function StopFly()
+    if FlyBodyVelocity then
+        FlyBodyVelocity:Destroy()
+        FlyBodyVelocity = nil
+    end
+    if FlyBodyGyro then
+        FlyBodyGyro:Destroy()
+        FlyBodyGyro = nil
+    end
+    if FlyConnection then
+        FlyConnection:Disconnect()
+        FlyConnection = nil
+    end
+    FlyActive = false
+
+    -- Восстанавливаем CanCollide
+    local character = LocalPlayer.Character
+    if character then
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+local function ToggleFly()
+    if FlyActive then
+        StopFly()
+    else
+        StartFly()
+    end
+end
+
+-- Обработка клавиши Fly
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Settings.Fly_Key then
+        Settings.Fly_Enabled = not Settings.Fly_Enabled
+        if Settings.Fly_Enabled then
+            StartFly()
+        else
+            StopFly()
+        end
+    end
+end)
+
+-- Автоматическое выключение при респе
+LocalPlayer.CharacterAdded:Connect(function()
+    if FlyActive then
+        StopFly()
+        Settings.Fly_Enabled = false
+    end
+end)
 
 -- ========== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP ==========
 local function onCharacterAdded(p, char)
@@ -355,7 +508,7 @@ local function GetTarget()
     end
 end
 
--- ========== УПРАВЛЕНИЕ КЛАВИШЕЙ ==========
+-- ========== УПРАВЛЕНИЕ КЛАВИШЕЙ АИМА ==========
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Settings.Aimbot_Key then
         IsKeyHolding = true
@@ -423,7 +576,7 @@ local function CreateMenu()
 
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = randomString(8)
-    MainFrame.Size = UDim2.new(0, 280, 0, 600)
+    MainFrame.Size = UDim2.new(0, 280, 0, 750)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     MainFrame.BackgroundTransparency = 0.2
@@ -449,7 +602,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP (голова) + Aimbot"
+    Title.Text = "ESP + AIMBOT + FLY"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -531,6 +684,12 @@ local function CreateMenu()
             box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
             if text == "ESP Enabled" then
                 RefreshAllESP()
+            elseif text == "Fly Enabled" then
+                if new then
+                    StartFly()
+                else
+                    StopFly()
+                end
             end
         end)
     end
@@ -737,6 +896,31 @@ local function CreateMenu()
         2, 20, "%.0fx")
     yPos = yPos + 50
 
+    -- ===== FLY SECTION =====
+    CreateCheckbox(MainFrame, "Fly Enabled", yPos,
+        function() return Settings.Fly_Enabled end,
+        function(v) Settings.Fly_Enabled = v end)
+    yPos = yPos + 35
+
+    CreateSlider(MainFrame, "Fly Speed", yPos,
+        function() return Settings.Fly_Speed end,
+        function(v) Settings.Fly_Speed = v end,
+        20, 200, "%.0f")
+    yPos = yPos + 50
+
+    -- Информация о клавише
+    local keyLabel = Instance.new("TextLabel")
+    keyLabel.Size = UDim2.new(1, -20, 0, 25)
+    keyLabel.Position = UDim2.new(0, 10, 0, yPos)
+    keyLabel.BackgroundTransparency = 1
+    keyLabel.Text = "Fly Key: F (toggle)"
+    keyLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    keyLabel.Font = Enum.Font.SourceSans
+    keyLabel.TextSize = 15
+    keyLabel.TextXAlignment = Enum.TextXAlignment.Left
+    keyLabel.Parent = MainFrame
+    yPos = yPos + 35
+
     local RefreshBtn = Instance.new("TextButton")
     RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
     RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
@@ -757,4 +941,4 @@ end
 -- ========== ЗАПУСК ==========
 CreateMenu()
 RefreshAllESP()
-print("✅ ESP — жёлтый круг на голове врага. Аимбот в голову. Удерживайте ПКМ.")
+print("✅ ESP (жёлтый круг на голове) + Aimbot + Fast Bullets + No Recoil + UNDETECTED FLY. Клавиша F - вкл/выкл полёт.")
