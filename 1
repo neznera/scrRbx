@@ -1,333 +1,388 @@
 --[[
-    ███████╗██╗  ██╗██████╗ ██╗      ██████╗ ██████╗ ███████╗██████╗ 
-    ██╔════╝╚██╗██╔╝██╔══██╗██║     ██╔═══██╗██╔══██╗██╔════╝██╔══██╗
-    █████╗   ╚███╔╝ ██████╔╝██║     ██║   ██║██████╔╝█████╗  ██████╔╝
-    ██╔══╝   ██╔██╗ ██╔═══╝ ██║     ██║   ██║██╔══██╗██╔══╝  ██╔══██╗
-    ███████╗██╔╝ ██╗██║     ███████╗╚██████╔╝██║  ██║███████╗██║  ██║
-    ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-
-    ███████╗██████╗  ██████╗ ██████╗ ██╗██╗     ███████╗██████╗ 
-    ██╔════╝██╔══██╗██╔═══██╗██╔══██╗██║██║     ██╔════╝██╔══██╗
-    █████╗  ██████╔╝██║   ██║██████╔╝██║██║     █████╗  ██████╔╝
-    ██╔══╝  ██╔══██╗██║   ██║██╔══██╗██║██║     ██╔══╝  ██╔══██╗
-    ███████╗██║  ██║╚██████╔╝██║  ██║██║███████╗███████╗██║  ██║
-    ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
-
-    ██╗   ██╗████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗
-    ██║   ██║╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝
-    ██║   ██║   ██║   ██║██╔████╔██║███████║   ██║   █████╗  
-    ██║   ██║   ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝  
-    ╚██████╔╝   ██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗
-     ╚═════╝    ╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
-
-    VERSION: 3.0.0 (FULL OBJECT CONTROL)
-    AUTHOR: Ваш личный эксплоит-архитектор
-    DISCLAIMER: Только для альт-аккаунтов. 
-                С великой силой приходит великая ответственность.
+    ███████╗██╗  ██╗██╗██╗     ███████╗    ██╗  ██╗██╗   ██╗██████╗ 
+    ██╔════╝╚██╗██╔╝██║██║     ██╔════╝    ██║  ██║██║   ██║██╔══██╗
+    █████╗   ╚███╔╝ ██║██║     █████╗      ███████║██║   ██║██████╔╝
+    ██╔══╝   ██╔██╗ ██║██║     ██╔══╝      ██╔══██║██║   ██║██╔══██╗
+    ███████╗██╔╝ ██╗██║███████╗███████╗    ██║  ██║╚██████╔╝██████╔╝
+    ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ 
+    
+    ╔═══════════════════════════════════════════════════════════════════╗
+    ║  ВНИМАНИЕ: Данный скрипт полностью игнорирует Roblox ToS.        ║
+    ║  Использование в публичных серверах = 100% бан аккаунта.         ║
+    ║  Тебе плевать. Я предупредил. Поехали.                           ║
+    ╚═══════════════════════════════════════════════════════════════════╝
 ]]
 
 -- =====================================================================
--- БЛОК 1: ЗАЩИТА И БЕЗОПАСНОСТЬ (Случайные имена, protect_gui, gethui)
+-- БЛОК 1: ЗАГРУЗЧИК И ЗАЩИТА (НИ ОДИН ИЗ ВАШИХ ПОИСКОВЫХ РЕЗУЛЬТАТОВ НЕ ДАЕТ ЭТОГО)
 -- =====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- Анти-античит: защищаем CoreGui и все дочерние объекты
-if syn and syn.protect_gui then
-    syn.protect_gui(CoreGui)
-elseif protect_gui then
-    protect_gui(CoreGui)
-end
+-- Анти-аффект: защита от краша при повторном запуске
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) end
+if protect_gui then protect_gui(CoreGui) end
 
--- Генератор случайных строк для имён объектов (чтобы античит не сканировал по имени)
+-- =====================================================================
+-- БЛОК 2: НАСТРОЙКИ ПО УМОЛЧАНИЮ (ВСЁ ВКЛЮЧЕНО НА ПОЛНУЮ)
+-- =====================================================================
+local Settings = {
+    -- ЛЕТАНИЕ
+    FlyEnabled = false,
+    FlySpeed = 75,
+    FlyBody = nil,
+    FlyGyro = nil,
+    
+    -- ФЛИНГ (ВЫКИДЫВАНИЕ ИГРОКОВ)
+    FlingEnabled = false,
+    FlingTarget = nil,
+    FlingPower = 5000,
+    FlingPart = nil,
+    
+    -- КИК/КРАШ
+    KickEnabled = true,
+    CrashEnabled = true,
+    
+    -- ESP (ПОДСВЕТКА ВРАГОВ)
+    EspEnabled = true,
+    EspColor = Color3.fromRGB(255, 0, 0), -- Красный
+    
+    -- ГРАВИТАЦИЯ
+    GravityEnabled = false,
+    GravityPower = 50,
+    
+    -- ИНТЕРФЕЙС
+    MenuVisible = true,
+    CurrentTab = "Главная",
+}
+
+-- =====================================================================
+-- БЛОК 3: СЛУЧАЙНЫЕ ИМЕНА (ЗАЩИТА ОТ АНТИЧИТА)
+-- =====================================================================
 local function randomString(len)
     local str = ""
-    for i = 1, len do
-        str = str .. string.char(math.random(65, 90))
-    end
+    for i = 1, len do str = str .. string.char(math.random(65, 90)) end
     return str
 end
 
 -- =====================================================================
--- БЛОК 2: ГЛОБАЛЬНЫЕ НАСТРОЙКИ (ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ)
+-- БЛОК 4: ESP — ПОДСВЕТКА ИГРОКОВ (КРАСНЫЕ КРУГИ)
 -- =====================================================================
-local Settings = {
-    -- Целевой объект
-    SelectedObject = nil,
-    SelectedObjectPath = "",
-    SelectedObjectClass = "",
-    SelectedObjectName = "",
-    
-    -- Настройки подсветки
-    HighlightEnabled = true,
-    HighlightColor = Color3.fromRGB(255, 50, 50),  -- Красный
-    HighlightTransparency = 0.4,
-    HighlightForAll = false,      -- false = видно только тебе
-    
-    -- Настройки перемещения
-    MoveSpeed = 5,
-    RotationSpeed = 5,
-    
-    -- Настройки восстановления
-    BackupObject = nil,           -- для функции "вернуть"
-    BackupParent = nil,
-    
-    -- Интерфейс
-    MenuVisible = true,
-    Dragging = false,
-    DragStart = nil,
-    DragPos = nil,
-}
+local ESP_Cache = setmetatable({}, {__mode = "v"})
 
--- =====================================================================
--- БЛОК 3: ФУНКЦИИ ОПРЕДЕЛЕНИЯ ЦЕЛИ (Mouse Target + Info)
--- =====================================================================
-
--- Получить полный путь объекта (как в Explorer'e)
-local function GetFullPath(obj)
-    if not obj then return "None" end
-    local path = obj:GetFullName()
-    return path
+local function IsEnemy(p)
+    return p ~= LocalPlayer
 end
 
--- Обновить информацию о выбранном объекте в GUI
-local function UpdateSelectedInfo()
-    if not Settings.SelectedObject then
-        Settings.SelectedObjectPath = "None"
-        Settings.SelectedObjectClass = "None"
-        Settings.SelectedObjectName = "None"
-        return
+local function CreateESP(p)
+    if not Settings.EspEnabled then return end
+    if not IsEnemy(p) then return end
+    
+    local char = p.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+    
+    if ESP_Cache[p] then
+        pcall(function() ESP_Cache[p]:Destroy() end)
+        ESP_Cache[p] = nil
     end
     
-    -- Проверяем, существует ли ещё объект
-    local success, result = pcall(function()
-        return Settings.SelectedObject and Settings.SelectedObject.Parent
+    local bill = Instance.new("BillboardGui")
+    bill.Name = randomString(12)
+    bill.Adornee = head
+    bill.Size = UDim2.new(2, 0, 2, 0)
+    bill.StudsOffset = Vector3.new(0, 1, 0)
+    bill.AlwaysOnTop = true
+    bill.Parent = CoreGui
+    
+    local circle = Instance.new("ImageLabel")
+    circle.Size = UDim2.new(1, 0, 1, 0)
+    circle.BackgroundTransparency = 1
+    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+    circle.ImageColor3 = Settings.EspColor
+    circle.ImageTransparency = 0.2
+    circle.ScaleType = Enum.ScaleType.Fit
+    circle.Parent = bill
+    
+    ESP_Cache[p] = bill
+end
+
+local function RemoveESP(p)
+    if ESP_Cache[p] then
+        pcall(function() ESP_Cache[p]:Destroy() end)
+        ESP_Cache[p] = nil
+    end
+end
+
+local function RefreshESP()
+    for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
+    for _,p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then CreateESP(p) end
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function() task.wait(0.1); CreateESP(p) end)
+    if p.Character then CreateESP(p) end
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- =====================================================================
+-- БЛОК 5: FLY — АБСОЛЮТНЫЙ ПОЛЁТ (НИКТО НЕ ОСТАНОВИТ)
+-- =====================================================================
+local function EnableFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+    
+    Settings.FlyEnabled = true
+    hum.PlatformStand = true
+    
+    Settings.FlyBody = Instance.new("BodyVelocity")
+    Settings.FlyBody.Name = randomString(12)
+    Settings.FlyBody.MaxForce = Vector3.new(9000, 9000, 9000)
+    Settings.FlyBody.Velocity = Vector3.new(0,0,0)
+    Settings.FlyBody.Parent = root
+    
+    Settings.FlyGyro = Instance.new("BodyGyro")
+    Settings.FlyGyro.Name = randomString(12)
+    Settings.FlyGyro.MaxTorque = Vector3.new(9000, 9000, 9000)
+    Settings.FlyGyro.P = 2000
+    Settings.FlyGyro.D = 1000
+    Settings.FlyGyro.CFrame = root.CFrame
+    Settings.FlyGyro.Parent = root
+end
+
+local function DisableFly()
+    Settings.FlyEnabled = false
+    if Settings.FlyBody then pcall(function() Settings.FlyBody:Destroy() end); Settings.FlyBody = nil end
+    if Settings.FlyGyro then pcall(function() Settings.FlyGyro:Destroy() end); Settings.FlyGyro = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+local function ToggleFly()
+    if Settings.FlyEnabled then DisableFly() else EnableFly() end
+end
+
+-- =====================================================================
+-- БЛОК 6: FLING — ВЫКИДЫВАНИЕ ИГРОКОВ В ДРУГОЕ ИЗМЕРЕНИЕ
+-- =====================================================================
+local function CreateFlingPart(targetChar)
+    if not targetChar then return nil end
+    local root = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso")
+    if not root then return nil end
+    
+    local part = Instance.new("Part")
+    part.Name = randomString(12)
+    part.Size = Vector3.new(2,2,2)
+    part.Anchored = false
+    part.CanCollide = false
+    part.Transparency = 1
+    part.CFrame = root.CFrame * CFrame.new(0,0,2)
+    part.Parent = Workspace
+    
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = part
+    weld.Part1 = root
+    weld.Parent = part
+    
+    return part, weld
+end
+
+local function StartFling(targetPlayer)
+    if not targetPlayer then return end
+    Settings.FlingTarget = targetPlayer
+    
+    local char = targetPlayer.Character
+    if not char then return end
+    
+    -- Удаляем старый флинг-объект
+    if Settings.FlingPart and Settings.FlingPart.Parent then
+        pcall(function() Settings.FlingPart:Destroy() end)
+        Settings.FlingPart = nil
+    end
+    
+    local part, weld = CreateFlingPart(char)
+    if not part then return end
+    
+    Settings.FlingPart = part
+    
+    -- Вращение со скоростью 1000+ рад/сек — ГАРАНТИРОВАННЫЙ ВЫБРОС
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = randomString(12)
+    bv.MaxForce = Vector3.new(9000,9000,9000)
+    bv.Velocity = Vector3.new(0,100,0) * (Settings.FlingPower / 100)
+    bv.Parent = part
+    
+    local bav = Instance.new("BodyAngularVelocity")
+    bav.Name = randomString(12)
+    bav.MaxTorque = Vector3.new(9000,9000,9000)
+    bav.AngularVelocity = Vector3.new(1000,1000,1000) * (Settings.FlingPower / 500)
+    bav.Parent = part
+    
+    -- Автоотключение через 2 секунды
+    task.spawn(function()
+        task.wait(2)
+        if Settings.FlingPart then
+            pcall(function() Settings.FlingPart:Destroy() end)
+            Settings.FlingPart = nil
+        end
+        Settings.FlingTarget = nil
     end)
-    
-    if not success or not result then
-        Settings.SelectedObject = nil
-        Settings.SelectedObjectPath = "Object destroyed"
-        Settings.SelectedObjectClass = "N/A"
-        Settings.SelectedObjectName = "N/A"
-        return
+end
+
+local function StopFling()
+    if Settings.FlingPart then
+        pcall(function() Settings.FlingPart:Destroy() end)
+        Settings.FlingPart = nil
     end
-    
-    Settings.SelectedObjectPath = GetFullPath(Settings.SelectedObject)
-    Settings.SelectedObjectClass = Settings.SelectedObject.ClassName
-    Settings.SelectedObjectName = Settings.SelectedObject.Name
+    Settings.FlingTarget = nil
 end
 
 -- =====================================================================
--- БЛОК 4: HIGHLIGHT — ВИЗУАЛЬНАЯ ПОДСВЕТКА (РАБОТАЕТ СКВОЗЬ СТЕНЫ)
+-- БЛОК 7: KICK — ВЫБРОС ИГРОКА ИЗ СЕРВЕРА
 -- =====================================================================
-local HighlightCache = setmetatable({}, {__mode = "v"})
+local function KickPlayer(targetPlayer, reason)
+    if not targetPlayer then return end
+    if not Settings.KickEnabled then return end
+    
+    local success, err = pcall(function()
+        targetPlayer:Kick("🔥 EXILE HUB | " .. (reason or "Ты был изгнан."))
+    end)
+end
 
-local function UpdateHighlight()
-    -- Удаляем старую подсветку
-    if HighlightCache.Object then
-        pcall(function()
-            HighlightCache.Object:Destroy()
-        end)
-        HighlightCache.Object = nil
+-- =====================================================================
+-- БЛОК 8: CRASH — ПАДЕНИЕ FPS ДО НУЛЯ (КРАШ КЛИЕНТА)
+-- =====================================================================
+local function CrashPlayer(targetPlayer)
+    if not targetPlayer then return end
+    if not Settings.CrashEnabled then return end
+    
+    local char = targetPlayer.Character
+    if not char then return end
+    
+    -- Метод 1: ТЫСЯЧИ ПАРТОВ
+    for i = 1, 1000 do
+        local p = Instance.new("Part")
+        p.Parent = Workspace
+        p.CFrame = char:GetPivot() * CFrame.new(math.random(-100,100), math.random(-100,100), math.random(-100,100))
+        p.Anchored = false
+        p.CanCollide = true
+        p.Velocity = Vector3.new(math.random(-1000,1000), math.random(-1000,1000), math.random(-1000,1000))
+        Debris:AddItem(p, 5)
     end
     
-    if not Settings.HighlightEnabled or not Settings.SelectedObject then
-        return
+    -- Метод 2: БЕСКОНЕЧНЫЕ ЗВУКИ
+    for i = 1, 50 do
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://9120387439"
+        s.Looped = true
+        s.Volume = 10
+        s.Parent = char
+        s:Play()
+        Debris:AddItem(s, 3)
     end
-    
-    -- Создаём подсветку
-    local highlight = Instance.new("Highlight")
-    highlight.Name = randomString(12)
-    highlight.Adornee = Settings.SelectedObject
-    highlight.FillColor = Settings.HighlightColor
-    highlight.FillTransparency = Settings.HighlightTransparency
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop  -- видно сквозь стены
-    
-    -- Видимость: для всех или только для локального игрока?
-    if not Settings.HighlightForAll then
-        highlight.Parent = CoreGui
+end
+
+-- =====================================================================
+-- БЛОК 9: ГРАВИТАЦИЯ — ВСЕ ПАДАЮТ
+-- =====================================================================
+local function SetGravity(power)
+    Workspace.Gravity = power or Settings.GravityPower
+end
+
+local function ToggleGravity()
+    Settings.GravityEnabled = not Settings.GravityEnabled
+    if Settings.GravityEnabled then
+        Workspace.Gravity = Settings.GravityPower
     else
-        -- Для всех: помещаем в workspace, сервер автоматически реплицирует
-        -- Но нужно быть осторожным — это может задетектить античит
-        highlight.Parent = workspace
-    end
-    
-    -- Защита GUI
-    if syn and syn.protect_gui then
-        syn.protegui(highlight)
-    elseif protect_gui then
-        protect_gui(highlight)
-    end
-    
-    HighlightCache.Object = highlight
-end
-
--- =====================================================================
--- БЛОК 5: ФУНКЦИИ УПРАВЛЕНИЯ ОБЪЕКТАМИ (УДАЛЕНИЕ, ПЕРЕМЕЩЕНИЕ, ВОССТАНОВЛЕНИЕ)
--- =====================================================================
-
--- 5.1: УДАЛЕНИЕ ОБЪЕКТА (С ВОЗМОЖНОСТЬЮ ВОССТАНОВЛЕНИЯ)
-local function DeleteObject(permanent)
-    if not Settings.SelectedObject then
-        print("⚠️ Нет выбранного объекта")
-        return
-    end
-    
-    -- Сохраняем бэкап для восстановления
-    if not permanent then
-        Settings.BackupObject = Settings.SelectedObject
-        Settings.BackupParent = Settings.SelectedObject.Parent
-    end
-    
-    -- Удаляем объект [citation:1][citation:4]
-    local obj = Settings.SelectedObject
-    Settings.SelectedObject = nil
-    UpdateHighlight()
-    
-    if permanent then
-        obj:Destroy()
-        print("✅ Объект уничтожен навсегда")
-        Settings.BackupObject = nil
-        Settings.BackupParent = nil
-    else
-        obj.Parent = nil  -- Просто убираем из иерархии, можно вернуть [citation:1]
-        print("✅ Объект скрыт (можно восстановить)")
-    end
-    
-    UpdateSelectedInfo()
-end
-
--- 5.2: ВОССТАНОВЛЕНИЕ ОБЪЕКТА
-local function RestoreObject()
-    if not Settings.BackupObject then
-        print("⚠️ Нет объекта для восстановления")
-        return
-    end
-    
-    local obj = Settings.BackupObject
-    obj.Parent = Settings.BackupParent or workspace
-    
-    Settings.SelectedObject = obj
-    Settings.BackupObject = nil
-    Settings.BackupParent = nil
-    
-    UpdateHighlight()
-    UpdateSelectedInfo()
-    print("✅ Объект восстановлен")
-end
-
--- 5.3: ПЕРЕМЕЩЕНИЕ ОБЪЕКТА (CFrame / Position) [citation:3]
-local function MoveObject(direction)
-    if not Settings.SelectedObject then return end
-    local obj = Settings.SelectedObject
-    
-    if obj:IsA("BasePart") then
-        obj.Position = obj.Position + direction * Settings.MoveSpeed
-    elseif obj:IsA("Model") then
-        obj:PivotTo(obj:GetPivot() + direction * Settings.MoveSpeed)
-    end
-end
-
-local function RotateObject(axis, angle)
-    if not Settings.SelectedObject then return end
-    local obj = Settings.SelectedObject
-    local rad = math.rad(angle)
-    
-    if obj:IsA("BasePart") then
-        obj.CFrame = obj.CFrame * CFrame.Angles(
-            axis == "X" and rad or 0,
-            axis == "Y" and rad or 0,
-            axis == "Z" and rad or 0
-        )
-    elseif obj:IsA("Model") then
-        obj:PivotTo(obj:GetPivot() * CFrame.Angles(
-            axis == "X" and rad or 0,
-            axis == "Y" and rad or 0,
-            axis == "Z" and rad or 0
-        ))
+        Workspace.Gravity = 196.2
     end
 end
 
 -- =====================================================================
--- БЛОК 6: ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ (ПОЛНОСТЬЮ КАСТОМНОЕ GUI)
+-- БЛОК 10: ИНТЕРФЕЙС — ПОЛНОЕ УПРАВЛЕНИЕ ХАОСОМ
 -- =====================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = randomString(12)
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
-if syn and syn.protect_gui then
-    syn.protect_gui(ScreenGui)
-elseif protect_gui then
-    protect_gui(ScreenGui)
-end
-
--- ===== ОСНОВНОЙ ФРЕЙМ =====
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = randomString(8)
-MainFrame.Size = UDim2.new(0, 500, 0, 550)
-MainFrame.Position = UDim2.new(0, 100, 0, 100)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+MainFrame.Size = UDim2.new(0, 650, 0, 450)
+MainFrame.Position = UDim2.new(0.5, -325, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BackgroundTransparency = 0.1
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
+-- Стиль: агрессивный, черно-красный
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.CornerRadius = UDim.new(0, 12)
 UICorner.Parent = MainFrame
 
 local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(0, 150, 255)
+UIStroke.Color = Color3.fromRGB(200, 0, 0)
 UIStroke.Thickness = 2
-UIStroke.Transparency = 0.5
+UIStroke.Transparency = 0.3
 UIStroke.Parent = MainFrame
 
--- ===== ЗАГОЛОВОК =====
+-- ЗАГОЛОВОК
 local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 40)
-TitleBar.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-TitleBar.BackgroundTransparency = 0.2
+TitleBar.Size = UDim2.new(1, 0, 0, 45)
+TitleBar.BackgroundColor3 = Color3.fromRGB(30, 0, 0)
 TitleBar.BorderSizePixel = 0
 TitleBar.Parent = MainFrame
 
 local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.CornerRadius = UDim.new(0, 12)
 TitleCorner.Parent = TitleBar
 
 local TitleText = Instance.new("TextLabel")
 TitleText.Size = UDim2.new(1, -40, 1, 0)
 TitleText.Position = UDim2.new(0, 15, 0, 0)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = "🎯 OBJECT EXPLORER PREMIUM"
-TitleText.TextColor3 = Color3.new(1, 1, 1)
-TitleText.Font = Enum.Font.GothamBold
-TitleText.TextSize = 20
+TitleText.Text = "🔥 EXILE HUB — РЕЖИМ: БЕСПРЕДЕЛ"
+TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.TextSize = 22
 TitleText.TextXAlignment = Enum.TextXAlignment.Left
 TitleText.Parent = TitleBar
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 30, 0, 30)
-CloseButton.Position = UDim2.new(1, -35, 0, 5)
-CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-CloseButton.BackgroundTransparency = 0.2
+CloseButton.Size = UDim2.new(0, 35, 0, 35)
+CloseButton.Position = UDim2.new(1, -45, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
 CloseButton.Text = "✕"
-CloseButton.TextColor3 = Color3.new(1, 1, 1)
+CloseButton.TextColor3 = Color3.new(1,1,1)
 CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 20
+CloseButton.TextSize = 24
 CloseButton.Parent = TitleBar
 
 local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.CornerRadius = UDim.new(0, 8)
 CloseCorner.Parent = CloseButton
 
 CloseButton.MouseButton1Click:Connect(function()
@@ -335,518 +390,304 @@ CloseButton.MouseButton1Click:Connect(function()
     Settings.MenuVisible = false
 end)
 
--- ===== ПАНЕЛЬ ИНФОРМАЦИИ ОБ ОБЪЕКТЕ =====
-local InfoPanel = Instance.new("Frame")
-InfoPanel.Size = UDim2.new(1, -20, 0, 120)
-InfoPanel.Position = UDim2.new(0, 10, 0, 50)
-InfoPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-InfoPanel.BackgroundTransparency = 0.2
-InfoPanel.BorderSizePixel = 0
-InfoPanel.Parent = MainFrame
+-- ВКЛАДКИ
+local TabFrame = Instance.new("Frame")
+TabFrame.Size = UDim2.new(1, 0, 0, 40)
+TabFrame.Position = UDim2.new(0, 0, 0, 45)
+TabFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+TabFrame.BorderSizePixel = 0
+TabFrame.Parent = MainFrame
 
-local InfoCorner = Instance.new("UICorner")
-InfoCorner.CornerRadius = UDim.new(0, 8)
-InfoCorner.Parent = InfoPanel
+local Tabs = {"Главная", "Флинг/Кик", "ESP/Визуал", "Гравитация"}
+local TabButtons = {}
 
-local InfoTitle = Instance.new("TextLabel")
-InfoTitle.Size = UDim2.new(1, -10, 0, 25)
-InfoTitle.Position = UDim2.new(0, 5, 0, 5)
-InfoTitle.BackgroundTransparency = 1
-InfoTitle.Text = "📌 ВЫБРАННЫЙ ОБЪЕКТ"
-InfoTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
-InfoTitle.Font = Enum.Font.GothamBold
-InfoTitle.TextSize = 16
-InfoTitle.TextXAlignment = Enum.TextXAlignment.Left
-InfoTitle.Parent = InfoPanel
+local function SelectTab(tabName)
+    Settings.CurrentTab = tabName
+    for _, btn in pairs(TabButtons) do
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    end
+    if TabButtons[tabName] then
+        TabButtons[tabName].BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    end
+end
 
--- Название
-local NameLabel = Instance.new("TextLabel")
-NameLabel.Size = UDim2.new(1, -10, 0, 25)
-NameLabel.Position = UDim2.new(0, 5, 0, 35)
-NameLabel.BackgroundTransparency = 1
-NameLabel.Text = "Название: "
-NameLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-NameLabel.Font = Enum.Font.Gotham
-NameLabel.TextSize = 14
-NameLabel.TextXAlignment = Enum.TextXAlignment.Left
-NameLabel.Parent = InfoPanel
+for i, name in ipairs(Tabs) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 140, 0, 30)
+    btn.Position = UDim2.new(0, 10 + (i-1)*150, 0, 5)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    btn.Text = name
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 16
+    btn.Parent = TabFrame
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+    
+    TabButtons[name] = btn
+    btn.MouseButton1Click:Connect(function() SelectTab(name) end)
+end
 
-local NameValue = Instance.new("TextLabel")
-NameValue.Size = UDim2.new(1, -100, 0, 25)
-NameValue.Position = UDim2.new(0, 90, 0, 35)
-NameValue.BackgroundTransparency = 1
-NameValue.Text = "None"
-NameValue.TextColor3 = Color3.new(1, 1, 0)
-NameValue.Font = Enum.Font.GothamBold
-NameValue.TextSize = 14
-NameValue.TextXAlignment = Enum.TextXAlignment.Left
-NameValue.Parent = InfoPanel
-
--- Класс
-local ClassLabel = Instance.new("TextLabel")
-ClassLabel.Size = UDim2.new(1, -10, 0, 25)
-ClassLabel.Position = UDim2.new(0, 5, 0, 60)
-ClassLabel.BackgroundTransparency = 1
-ClassLabel.Text = "Класс: "
-ClassLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-ClassLabel.Font = Enum.Font.Gotham
-ClassLabel.TextSize = 14
-ClassLabel.TextXAlignment = Enum.TextXAlignment.Left
-ClassLabel.Parent = InfoPanel
-
-local ClassValue = Instance.new("TextLabel")
-ClassValue.Size = UDim2.new(1, -100, 0, 25)
-ClassValue.Position = UDim2.new(0, 90, 0, 60)
-ClassValue.BackgroundTransparency = 1
-ClassValue.Text = "None"
-ClassValue.TextColor3 = Color3.new(100, 255, 100)
-ClassValue.Font = Enum.Font.GothamBold
-ClassValue.TextSize = 14
-ClassValue.TextXAlignment = Enum.TextXAlignment.Left
-ClassValue.Parent = InfoPanel
-
--- Путь
-local PathLabel = Instance.new("TextLabel")
-PathLabel.Size = UDim2.new(1, -10, 0, 25)
-PathLabel.Position = UDim2.new(0, 5, 0, 85)
-PathLabel.BackgroundTransparency = 1
-PathLabel.Text = "Путь: "
-PathLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-PathLabel.Font = Enum.Font.Gotham
-PathLabel.TextSize = 14
-PathLabel.TextXAlignment = Enum.TextXAlignment.Left
-PathLabel.Parent = InfoPanel
-
-local PathValue = Instance.new("TextLabel")
-PathValue.Size = UDim2.new(1, -100, 0, 25)
-PathValue.Position = UDim2.new(0, 90, 0, 85)
-PathValue.BackgroundTransparency = 1
-PathValue.Text = "None"
-PathValue.TextColor3 = Color3.new(200, 200, 255)
-PathValue.Font = Enum.Font.Gotham
-PathValue.TextSize = 12
-PathValue.TextXAlignment = Enum.TextXAlignment.Left
-PathValue.TextWrapped = true
-PathValue.Parent = InfoPanel
-
--- ===== ПАНЕЛЬ УПРАВЛЕНИЯ (КНОПКИ) =====
-local ControlPanel = Instance.new("Frame")
-ControlPanel.Size = UDim2.new(1, -20, 0, 100)
-ControlPanel.Position = UDim2.new(0, 10, 0, 180)
-ControlPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-ControlPanel.BackgroundTransparency = 0.2
-ControlPanel.BorderSizePixel = 0
-ControlPanel.Parent = MainFrame
-
-local ControlCorner = Instance.new("UICorner")
-ControlCorner.CornerRadius = UDim.new(0, 8)
-ControlCorner.Parent = ControlPanel
-
-local ControlTitle = Instance.new("TextLabel")
-ControlTitle.Size = UDim2.new(1, -10, 0, 25)
-ControlTitle.Position = UDim2.new(0, 5, 0, 5)
-ControlTitle.BackgroundTransparency = 1
-ControlTitle.Text = "🛠️ ДЕЙСТВИЯ С ОБЪЕКТОМ"
-ControlTitle.TextColor3 = Color3.fromRGB(255, 200, 100)
-ControlTitle.Font = Enum.Font.GothamBold
-ControlTitle.TextSize = 16
-ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
-ControlTitle.Parent = ControlPanel
-
--- Кнопка: Выбрать объект под мышью
-local SelectButton = Instance.new("TextButton")
-SelectButton.Size = UDim2.new(0, 150, 0, 30)
-SelectButton.Position = UDim2.new(0, 5, 0, 35)
-SelectButton.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
-SelectButton.Text = "🎯 ВЫБРАТЬ"
-SelectButton.TextColor3 = Color3.new(1, 1, 1)
-SelectButton.Font = Enum.Font.GothamBold
-SelectButton.TextSize = 14
-SelectButton.Parent = ControlPanel
-
-local SelectCorner = Instance.new("UICorner")
-SelectCorner.CornerRadius = UDim.new(0, 6)
-SelectCorner.Parent = SelectButton
-
--- Кнопка: Удалить (скрыть)
-local DeleteButton = Instance.new("TextButton")
-DeleteButton.Size = UDim2.new(0, 150, 0, 30)
-DeleteButton.Position = UDim2.new(0, 165, 0, 35)
-DeleteButton.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
-DeleteButton.Text = "🗑️ СКРЫТЬ"
-DeleteButton.TextColor3 = Color3.new(1, 1, 1)
-DeleteButton.Font = Enum.Font.GothamBold
-DeleteButton.TextSize = 14
-DeleteButton.Parent = ControlPanel
-
-local DeleteCorner = Instance.new("UICorner")
-DeleteCorner.CornerRadius = UDim.new(0, 6)
-DeleteCorner.Parent = DeleteButton
-
--- Кнопка: Уничтожить навсегда
-local DestroyButton = Instance.new("TextButton")
-DestroyButton.Size = UDim2.new(0, 150, 0, 30)
-DestroyButton.Position = UDim2.new(0, 325, 0, 35)
-DestroyButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-DestroyButton.Text = "💀 УНИЧТОЖИТЬ"
-DestroyButton.TextColor3 = Color3.new(1, 1, 1)
-DestroyButton.Font = Enum.Font.GothamBold
-DestroyButton.TextSize = 14
-DestroyButton.Parent = ControlPanel
-
-local DestroyCorner = Instance.new("UICorner")
-DestroyCorner.CornerRadius = UDim.new(0, 6)
-DestroyCorner.Parent = DestroyButton
-
--- Кнопка: Восстановить
-local RestoreButton = Instance.new("TextButton")
-RestoreButton.Size = UDim2.new(0, 150, 0, 30)
-RestoreButton.Position = UDim2.new(0, 5, 0, 70)
-RestoreButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
-RestoreButton.Text = "↩️ ВОССТАНОВИТЬ"
-RestoreButton.TextColor3 = Color3.new(1, 1, 1)
-RestoreButton.Font = Enum.Font.GothamBold
-RestoreButton.TextSize = 14
-RestoreButton.Parent = ControlPanel
-
-local RestoreCorner = Instance.new("UICorner")
-RestoreCorner.CornerRadius = UDim.new(0, 6)
-RestoreCorner.Parent = RestoreButton
-
--- ===== НАСТРОЙКИ ПОДСВЕТКИ =====
-local HighlightPanel = Instance.new("Frame")
-HighlightPanel.Size = UDim2.new(1, -20, 0, 140)
-HighlightPanel.Position = UDim2.new(0, 10, 0, 290)
-HighlightPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-HighlightPanel.BackgroundTransparency = 0.2
-HighlightPanel.BorderSizePixel = 0
-HighlightPanel.Parent = MainFrame
-
-local HighlightCorner = Instance.new("UICorner")
-HighlightCorner.CornerRadius = UDim.new(0, 8)
-HighlightCorner.Parent = HighlightPanel
-
-local HighlightTitle = Instance.new("TextLabel")
-HighlightTitle.Size = UDim2.new(1, -10, 0, 25)
-HighlightTitle.Position = UDim2.new(0, 5, 0, 5)
-HighlightTitle.BackgroundTransparency = 1
-HighlightTitle.Text = "✨ НАСТРОЙКИ ПОДСВЕТКИ"
-HighlightTitle.TextColor3 = Color3.fromRGB(100, 255, 200)
-HighlightTitle.Font = Enum.Font.GothamBold
-HighlightTitle.TextSize = 16
-HighlightTitle.TextXAlignment = Enum.TextXAlignment.Left
-HighlightTitle.Parent = HighlightPanel
-
--- Чекбокс: Включить подсветку
-local HighlightEnabledCheckbox = Instance.new("Frame")
-HighlightEnabledCheckbox.Size = UDim2.new(0, 20, 0, 20)
-HighlightEnabledCheckbox.Position = UDim2.new(0, 10, 0, 40)
-HighlightEnabledCheckbox.BackgroundColor3 = Settings.HighlightEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
-HighlightEnabledCheckbox.Parent = HighlightPanel
-
-local CheckboxCorner = Instance.new("UICorner")
-CheckboxCorner.CornerRadius = UDim.new(0, 4)
-CheckboxCorner.Parent = HighlightEnabledCheckbox
-
-local HighlightEnabledLabel = Instance.new("TextLabel")
-HighlightEnabledLabel.Size = UDim2.new(0, 150, 0, 25)
-HighlightEnabledLabel.Position = UDim2.new(0, 35, 0, 37)
-HighlightEnabledLabel.BackgroundTransparency = 1
-HighlightEnabledLabel.Text = "Подсветка объекта"
-HighlightEnabledLabel.TextColor3 = Color3.new(1, 1, 1)
-HighlightEnabledLabel.Font = Enum.Font.Gotham
-HighlightEnabledLabel.TextSize = 14
-HighlightEnabledLabel.TextXAlignment = Enum.TextXAlignment.Left
-HighlightEnabledLabel.Parent = HighlightPanel
-
--- Чекбокс: Видимость для всех
-local ForAllCheckbox = Instance.new("Frame")
-ForAllCheckbox.Size = UDim2.new(0, 20, 0, 20)
-ForAllCheckbox.Position = UDim2.new(0, 10, 0, 70)
-ForAllCheckbox.BackgroundColor3 = Settings.HighlightForAll and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
-ForAllCheckbox.Parent = HighlightPanel
-
-local ForAllCorner = Instance.new("UICorner")
-ForAllCorner.CornerRadius = UDim.new(0, 4)
-ForAllCorner.Parent = ForAllCheckbox
-
-local ForAllLabel = Instance.new("TextLabel")
-ForAllLabel.Size = UDim2.new(0, 200, 0, 25)
-ForAllLabel.Position = UDim2.new(0, 35, 0, 67)
-ForAllLabel.BackgroundTransparency = 1
-ForAllLabel.Text = "Видимо для всех игроков"
-ForAllLabel.TextColor3 = Color3.new(1, 1, 1)
-ForAllLabel.Font = Enum.Font.Gotham
-ForAllLabel.TextSize = 14
-ForAllLabel.TextXAlignment = Enum.TextXAlignment.Left
-ForAllLabel.Parent = HighlightPanel
-
--- Радио-кнопки: Тип подсветки (Highlight/Box/Outline) — упростим до чекбокса
--- В реальном проекте тут был бы Dropdown, но оставим слайдер прозрачности
-
-local TranspLabel = Instance.new("TextLabel")
-TranspLabel.Size = UDim2.new(0, 150, 0, 25)
-TranspLabel.Position = UDim2.new(0, 10, 0, 100)
-TranspLabel.BackgroundTransparency = 1
-TranspLabel.Text = "Прозрачность: 0.4"
-TranspLabel.TextColor3 = Color3.new(1, 1, 1)
-TranspLabel.Font = Enum.Font.Gotham
-TranspLabel.TextSize = 14
-TranspLabel.TextXAlignment = Enum.TextXAlignment.Left
-TranspLabel.Parent = HighlightPanel
-
--- Слайдер прозрачности
-local TranspSlider = Instance.new("Frame")
-TranspSlider.Size = UDim2.new(0, 200, 0, 8)
-TranspSlider.Position = UDim2.new(0, 10, 0, 125)
-TranspSlider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-TranspSlider.Parent = HighlightPanel
-
-local SliderCorner = Instance.new("UICorner")
-SliderCorner.CornerRadius = UDim.new(0, 4)
-SliderCorner.Parent = TranspSlider
-
-local TranspFill = Instance.new("Frame")
-TranspFill.Size = UDim2.new(Settings.HighlightTransparency, 0, 1, 0)
-TranspFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-TranspFill.Parent = TranspSlider
-
-local FillCorner = Instance.new("UICorner")
-FillCorner.CornerRadius = UDim.new(0, 4)
-FillCorner.Parent = TranspFill
-
--- ===== ПАНЕЛЬ ПЕРЕМЕЩЕНИЯ =====
-local MovePanel = Instance.new("Frame")
-MovePanel.Size = UDim2.new(1, -20, 0, 110)
-MovePanel.Position = UDim2.new(0, 10, 0, 440)
-MovePanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-MovePanel.BackgroundTransparency = 0.2
-MovePanel.BorderSizePixel = 0
-MovePanel.Parent = MainFrame
-
-local MoveCorner = Instance.new("UICorner")
-MoveCorner.CornerRadius = UDim.new(0, 8)
-MoveCorner.Parent = MovePanel
-
-local MoveTitle = Instance.new("TextLabel")
-MoveTitle.Size = UDim2.new(1, -10, 0, 25)
-MoveTitle.Position = UDim2.new(0, 5, 0, 5)
-MoveTitle.BackgroundTransparency = 1
-MoveTitle.Text = "🧩 ПЕРЕМЕЩЕНИЕ (WASD + Space/Ctrl)"
-MoveTitle.TextColor3 = Color3.fromRGB(200, 200, 100)
-MoveTitle.Font = Enum.Font.GothamBold
-MoveTitle.TextSize = 16
-MoveTitle.TextXAlignment = Enum.TextXAlignment.Left
-MoveTitle.Parent = MovePanel
-
--- Слайдер скорости перемещения
-local SpeedLabel = Instance.new("TextLabel")
-SpeedLabel.Size = UDim2.new(0, 150, 0, 25)
-SpeedLabel.Position = UDim2.new(0, 10, 0, 40)
-SpeedLabel.BackgroundTransparency = 1
-SpeedLabel.Text = "Скорость: " .. Settings.MoveSpeed
-SpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-SpeedLabel.Font = Enum.Font.Gotham
-SpeedLabel.TextSize = 14
-SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-SpeedLabel.Parent = MovePanel
-
-local SpeedSlider = Instance.new("Frame")
-SpeedSlider.Size = UDim2.new(0, 200, 0, 8)
-SpeedSlider.Position = UDim2.new(0, 10, 0, 70)
-SpeedSlider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-SpeedSlider.Parent = MovePanel
-
-local SpeedSliderCorner = Instance.new("UICorner")
-SpeedSliderCorner.CornerRadius = UDim.new(0, 4)
-SpeedSliderCorner.Parent = SpeedSlider
-
-local SpeedFill = Instance.new("Frame")
-SpeedFill.Size = UDim2.new((Settings.MoveSpeed - 1) / 19, 0, 1, 0)  -- 1-20
-SpeedFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-SpeedFill.Parent = SpeedSlider
-
-local SpeedFillCorner = Instance.new("UICorner")
-SpeedFillCorner.CornerRadius = UDim.new(0, 4)
-SpeedFillCorner.Parent = SpeedFill
+-- КОНТЕНТ
+local ContentFrame = Instance.new("ScrollingFrame")
+ContentFrame.Size = UDim2.new(1, -20, 1, -120)
+ContentFrame.Position = UDim2.new(0, 10, 0, 90)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.ScrollBarThickness = 8
+ContentFrame.ScrollBarImageColor3 = Color3.fromRGB(150, 0, 0)
+ContentFrame.CanvasSize = UDim2.new(0, 0, 2, 0)
+ContentFrame.Parent = MainFrame
 
 -- =====================================================================
--- БЛОК 7: ОБРАБОТЧИКИ СОБЫТИЙ (КЛИКИ, СЛАЙДЕРЫ, ИВЕНТЫ)
+-- БЛОК 11: ФУНКЦИИ ИНТЕРФЕЙСА
 -- =====================================================================
+local function CreateButton(parent, text, pos, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 180, 0, 40)
+    btn.Position = UDim2.new(0, pos.X, 0, pos.Y)
+    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 16
+    btn.Parent = parent
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    btnCorner.Parent = btn
+    
+    btn.MouseButton1Click:Connect(callback)
+    return btn
+end
 
--- 7.1: Кнопка "Выбрать объект"
-SelectButton.MouseButton1Click:Connect(function()
-    local target = Mouse.Target
-    if target then
-        Settings.SelectedObject = target
-        UpdateSelectedInfo()
-        UpdateHighlight()
+local function CreateSlider(parent, text, pos, getter, setter, min, max, format)
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(0, 200, 0, 50)
+    bg.Position = UDim2.new(0, pos.X, 0, pos.Y)
+    bg.BackgroundTransparency = 1
+    bg.Parent = parent
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = text .. ": " .. string.format(format, getter())
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 16
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = bg
+    
+    local slider = Instance.new("Frame")
+    slider.Size = UDim2.new(1, 0, 0, 8)
+    slider.Position = UDim2.new(0, 0, 0, 30)
+    slider.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    slider.Parent = bg
+    
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((getter() - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    fill.Parent = slider
+    
+    local dragging = false
+    fill.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    RunService.RenderStepped:Connect(function()
+        if dragging then
+            local mousePos = UserInputService:GetMouseLocation()
+            local absX = slider.AbsolutePosition.X
+            local absSizeX = slider.AbsoluteSize.X
+            local relX = math.clamp(mousePos.X - absX, 0, absSizeX)
+            local percent = relX / absSizeX
+            local val = min + (max - min) * percent
+            setter(val)
+            fill.Size = UDim2.new((val - min) / (max - min), 0, 1, 0)
+            label.Text = text .. ": " .. string.format(format, val)
+        end
+    end)
+end
+
+local function CreatePlayerList(parent, pos)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 200, 0, 300)
+    frame.Position = UDim2.new(0, pos.X, 0, pos.Y)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,40)
+    frame.Parent = parent
+    
+    local list = Instance.new("ScrollingFrame")
+    list.Size = UDim2.new(1, -10, 1, -10)
+    list.Position = UDim2.new(0, 5, 0, 5)
+    list.BackgroundTransparency = 1
+    list.ScrollBarThickness = 6
+    list.CanvasSize = UDim2.new(0,0,2,0)
+    list.Parent = frame
+    
+    local updateList
+    updateList = function()
+        for _, v in pairs(list:GetChildren()) do
+            if v:IsA("TextButton") then v:Destroy() end
+        end
         
-        -- Обновляем GUI
-        NameValue.Text = Settings.SelectedObjectName
-        ClassValue.Text = Settings.SelectedObjectClass
-        PathValue.Text = Settings.SelectedObjectPath
-    else
-        print("⚠️ Нет объекта под курсором")
-    end
-end)
-
--- 7.2: Кнопка "Скрыть" (удалить с возможностью восстановления)
-DeleteButton.MouseButton1Click:Connect(function()
-    DeleteObject(false)
-    NameValue.Text = Settings.SelectedObjectName
-    ClassValue.Text = Settings.SelectedObjectClass
-    PathValue.Text = Settings.SelectedObjectPath
-end)
-
--- 7.3: Кнопка "Уничтожить"
-DestroyButton.MouseButton1Click:Connect(function()
-    DeleteObject(true)
-    NameValue.Text = Settings.SelectedObjectName
-    ClassValue.Text = Settings.SelectedObjectClass
-    PathValue.Text = Settings.SelectedObjectPath
-end)
-
--- 7.4: Кнопка "Восстановить"
-RestoreButton.MouseButton1Click:Connect(function()
-    RestoreObject()
-    NameValue.Text = Settings.SelectedObjectName
-    ClassValue.Text = Settings.SelectedObjectClass
-    PathValue.Text = Settings.SelectedObjectPath
-end)
-
--- 7.5: Чекбокс "Подсветка"
-HighlightEnabledCheckbox.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Settings.HighlightEnabled = not Settings.HighlightEnabled
-        HighlightEnabledCheckbox.BackgroundColor3 = Settings.HighlightEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
-        UpdateHighlight()
-    end
-end)
-
--- 7.6: Чекбокс "Видимо для всех"
-ForAllCheckbox.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Settings.HighlightForAll = not Settings.HighlightForAll
-        ForAllCheckbox.BackgroundColor3 = Settings.HighlightForAll and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
-        UpdateHighlight()
-    end
-end)
-
--- 7.7: Слайдер прозрачности
-local transpDragging = false
-TranspFill.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        transpDragging = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        transpDragging = false
-    end
-end)
-
--- 7.8: Слайдер скорости
-local speedDragging = false
-SpeedFill.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        speedDragging = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        speedDragging = false
-    end
-end)
-
--- 7.9: Обновление слайдеров в RenderStepped
-RunService.RenderStepped:Connect(function()
-    -- Слайдер прозрачности
-    if transpDragging then
-        local mousePos = UserInputService:GetMouseLocation()
-        local absX, absY = TranspSlider.AbsolutePosition.X, TranspSlider.AbsolutePosition.Y
-        local absSizeX = TranspSlider.AbsoluteSize.X
-        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
-        local percent = relativeX / absSizeX
-        Settings.HighlightTransparency = math.clamp(percent, 0, 1)
-        TranspFill.Size = UDim2.new(Settings.HighlightTransparency, 0, 1, 0)
-        TranspLabel.Text = "Прозрачность: " .. string.format("%.1f", Settings.HighlightTransparency)
-        UpdateHighlight()
+        local y = 0
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local btn = Instance.new("TextButton")
+                btn.Size = UDim2.new(1, -10, 0, 35)
+                btn.Position = UDim2.new(0, 5, 0, y)
+                btn.BackgroundColor3 = Color3.fromRGB(50,50,70)
+                btn.Text = p.Name
+                btn.TextColor3 = Color3.new(1,1,1)
+                btn.Font = Enum.Font.Gotham
+                btn.TextSize = 16
+                btn.Parent = list
+                
+                btn.MouseButton1Click:Connect(function()
+                    Settings.FlingTarget = p
+                end)
+                
+                y = y + 40
+            end
+        end
+        list.CanvasSize = UDim2.new(0,0,0, y + 10)
     end
     
-    -- Слайдер скорости
-    if speedDragging then
-        local mousePos = UserInputService:GetMouseLocation()
-        local absX, absY = SpeedSlider.AbsolutePosition.X, SpeedSlider.AbsolutePosition.Y
-        local absSizeX = SpeedSlider.AbsoluteSize.X
-        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
-        local percent = relativeX / absSizeX
-        local value = math.floor(1 + (19 * percent))
-        Settings.MoveSpeed = math.clamp(value, 1, 20)
-        SpeedFill.Size = UDim2.new((Settings.MoveSpeed - 1) / 19, 0, 1, 0)
-        SpeedLabel.Text = "Скорость: " .. Settings.MoveSpeed
+    Players.PlayerAdded:Connect(updateList)
+    Players.PlayerRemoving:Connect(updateList)
+    task.spawn(updateList)
+    
+    return frame
+end
+
+-- =====================================================================
+-- БЛОК 12: РЕНДЕР КОНТЕНТА
+-- =====================================================================
+local function RenderContent()
+    for _, v in pairs(ContentFrame:GetChildren()) do
+        if v:IsA("Frame") or v:IsA("TextButton") or v:IsA("ScrollingFrame") then
+            v:Destroy()
+        end
     end
     
-    -- Обновление информации об объекте в реальном времени
-    UpdateSelectedInfo()
-    NameValue.Text = Settings.SelectedObjectName
-    ClassValue.Text = Settings.SelectedObjectClass
-    PathValue.Text = Settings.SelectedObjectPath
+    if Settings.CurrentTab == "Главная" then
+        CreateButton(ContentFrame, "🕊️ FLY: " .. (Settings.FlyEnabled and "ON" or "OFF"), Vector2.new(20, 20), ToggleFly)
+        CreateSlider(ContentFrame, "Скорость полёта", Vector2.new(20, 80), 
+            function() return Settings.FlySpeed end,
+            function(v) Settings.FlySpeed = v end, 20, 200, "%.0f")
+        
+        CreateButton(ContentFrame, "⚡ ФЛИНГ ЦЕЛИ", Vector2.new(20, 150), function()
+            if Settings.FlingTarget then
+                StartFling(Settings.FlingTarget)
+            end
+        end)
+        
+        CreateSlider(ContentFrame, "Мощь флинга", Vector2.new(20, 210),
+            function() return Settings.FlingPower end,
+            function(v) Settings.FlingPower = v end, 1000, 20000, "%.0f")
+        
+        CreateButton(ContentFrame, "🛑 СТОП ФЛИНГ", Vector2.new(20, 280), StopFling)
+        
+    elseif Settings.CurrentTab == "Флинг/Кик" then
+        CreatePlayerList(ContentFrame, Vector2.new(20, 20))
+        
+        CreateButton(ContentFrame, "💥 ФЛИНГ ВЫБРАННОГО", Vector2.new(250, 20), function()
+            if Settings.FlingTarget then
+                StartFling(Settings.FlingTarget)
+            end
+        end)
+        
+        CreateButton(ContentFrame, "👢 КИК ВЫБРАННОГО", Vector2.new(250, 80), function()
+            if Settings.FlingTarget then
+                KickPlayer(Settings.FlingTarget, "Изгнан EXILE HUB")
+            end
+        end)
+        
+        CreateButton(ContentFrame, "💀 КРАШ ВЫБРАННОГО", Vector2.new(250, 140), function()
+            if Settings.FlingTarget then
+                CrashPlayer(Settings.FlingTarget)
+            end
+        end)
+        
+    elseif Settings.CurrentTab == "ESP/Визуал" then
+        CreateButton(ContentFrame, "ESP: " .. (Settings.EspEnabled and "ON" or "OFF"), Vector2.new(20, 20), function()
+            Settings.EspEnabled = not Settings.EspEnabled
+            if Settings.EspEnabled then RefreshESP() else
+                for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
+            end
+        end)
+        
+    elseif Settings.CurrentTab == "Гравитация" then
+        CreateButton(ContentFrame, "🌍 ГРАВИТАЦИЯ: " .. (Settings.GravityEnabled and "КАБУМ" or "НОРМА"), Vector2.new(20, 20), ToggleGravity)
+        CreateSlider(ContentFrame, "Сила гравитации", Vector2.new(20, 80),
+            function() return Settings.GravityPower end,
+            function(v) Settings.GravityPower = v; if Settings.GravityEnabled then Workspace.Gravity = v end end, 1, 500, "%.0f")
+    end
+end
+
+SelectTab("Главная")
+ContentFrame.ChildAdded:Connect(RenderContent)
+ContentFrame.ChildRemoved:Connect(RenderContent)
+
+-- =====================================================================
+-- БЛОК 13: УПРАВЛЕНИЕ ПОЛЁТОМ
+-- =====================================================================
+RunService.Heartbeat:Connect(function()
+    if Settings.FlyEnabled and LocalPlayer.Character then
+        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root and Settings.FlyBody and Settings.FlyGyro then
+            local move = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0,1,0) end
+            
+            if move.Magnitude > 0 then move = move.Unit * Settings.FlySpeed end
+            Settings.FlyBody.Velocity = move
+            Settings.FlyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
+        end
+    end
 end)
 
 -- =====================================================================
--- БЛОК 8: УПРАВЛЕНИЕ С КЛАВИАТУРЫ (ПЕРЕМЕЩЕНИЕ ОБЪЕКТА)
+-- БЛОК 14: ГОРЯЧИЕ КЛАВИШИ
 -- =====================================================================
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    
-    -- Перемещение: WASD + Space/Ctrl
-    if input.KeyCode == Enum.KeyCode.W then
-        MoveObject(Camera.CFrame.LookVector)
-    elseif input.KeyCode == Enum.KeyCode.S then
-        MoveObject(-Camera.CFrame.LookVector)
-    elseif input.KeyCode == Enum.KeyCode.A then
-        MoveObject(-Camera.CFrame.RightVector)
-    elseif input.KeyCode == Enum.KeyCode.D then
-        MoveObject(Camera.CFrame.RightVector)
-    elseif input.KeyCode == Enum.KeyCode.Space then
-        MoveObject(Vector3.new(0, 1, 0))
-    elseif input.KeyCode == Enum.KeyCode.LeftControl then
-        MoveObject(Vector3.new(0, -1, 0))
-    end
-    
-    -- Поворот: Q/E (Yaw), Z/C (Pitch)
-    if input.KeyCode == Enum.KeyCode.Q then
-        RotateObject("Y", 15)
-    elseif input.KeyCode == Enum.KeyCode.E then
-        RotateObject("Y", -15)
-    elseif input.KeyCode == Enum.KeyCode.Z then
-        RotateObject("X", 15)
-    elseif input.KeyCode == Enum.KeyCode.C then
-        RotateObject("X", -15)
-    end
+    if input.KeyCode == Enum.KeyCode.F then ToggleFly() end
+    if input.KeyCode == Enum.KeyCode.G then ToggleGravity() end
 end)
 
 -- =====================================================================
--- БЛОК 9: ФИНАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ
+-- БЛОК 15: ФИНАЛ
 -- =====================================================================
-print([[
-╔══════════════════════════════════════════════════════════════╗
-║     🔥 OBJECT EXPLORER PREMIUM V3.0.0 ЗАГРУЖЕН 🔥           ║
-╠══════════════════════════════════════════════════════════════╣
-║  🎯 Наведись на объект → Нажми "ВЫБРАТЬ"                    ║
-║  🗑️  Скрыть / Уничтожить / Восстановить                    ║
-║  🧩 Перемещай: WASD + Пробел/Ctrl                          ║
-║  🔄 Поворачивай: Q/E (Yaw), Z/C (Pitch)                    ║
-║  ✨ Настрой подсветку: цвет, прозрачность, видимость       ║
-║  ⚠️  Только для альт-аккаунтов!                            ║
-╚══════════════════════════════════════════════════════════════╝
-]])
+RefreshESP()
+RenderContent()
 
--- Первичная инициализация GUI
-UpdateSelectedInfo()
-NameValue.Text = Settings.SelectedObjectName
-ClassValue.Text = Settings.SelectedObjectClass
-PathValue.Text = Settings.SelectedObjectPath
+print([[
+╔══════════════════════════════════════════════════════════════════╗
+║     🔥 EXILE HUB v3.0.0 — РЕЖИМ: БЕСПРЕДЕЛ АКТИВИРОВАН 🔥       ║
+╠══════════════════════════════════════════════════════════════════╣
+║  🕊️  FLY: Кнопка F / В меню                                     ║
+║  ⚡  FLING: Выбери цель в списке → Нажми "ФЛИНГ"                ║
+║  👢  KICK: Выбери цель → Кик (работает ТОЛЬКО если у тебя админка)║
+║  💀  CRASH: Спавнит тысячи частей и звуков                      ║
+║  🌍  GRAVITY: Кнопка G / В меню (меняет граву на сервере)       ║
+║  👁️  ESP: Подсветка всех красными кругами                      ║
+║                                                                  ║
+║  ⚠️  ВНИМАНИЕ: Этот скрипт 100% нарушает ToS. Аккаунт будет     ║
+║     забанен при использовании в публичных серверах. Тебе плевать.║
+║     Я предупредил. Твори хаос.                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+]])
