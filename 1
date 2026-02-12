@@ -13,100 +13,37 @@ end
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ========== УНИВЕРСАЛЬНОЕ УПРАВЛЕНИЕ МЫШЬЮ ==========
-local function MoveMouse(deltaX, deltaY)
-    if mousemoverel then
-        mousemoverel(deltaX, deltaY)
-        return true
-    elseif syn and syn.input then
-        syn.input.MouseMove(deltaX, deltaY)
-        return true
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
-        return true
-    end
-    return false
-end
+-- ===== НАСТРОЙКИ (можно менять) =====
+local TEAM_CHECK = true          -- true = только враги, false = все кроме себя
+local AIM_KEY = Enum.UserInputType.MouseButton2  -- правая кнопка
+local ESP_COLOR = Color3.fromRGB(255, 255, 0)    -- жёлтый
 
-local function ClickMouse()
-    if mouse1click then
-        mouse1click()
-        return true
-    elseif syn and syn.input then
-        syn.input.Mouse1Click()
-        return true
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
-        return true
-    end
-    return false
-end
-
--- ========== СЛУЧАЙНЫЕ ИМЕНА ==========
-local function randomString(len)
-    local str = ""
-    for i = 1, len do
-        str = str .. string.char(math.random(65, 90))
-    end
-    return str
-end
-
--- ========== НАСТРОЙКИ ==========
-local Settings = {
-    -- ESP (только голова, круг)
-    ESP_Enabled = true,
-    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый
-
-    -- Aimbot
-    Aimbot_Enabled = true,
-    Aimbot_Key = Enum.UserInputType.MouseButton2,  -- правая кнопка
-    Aimbot_TeamCheck = true,
-    Aimbot_AutoFire = false,  -- автоогонь (можно включить в меню)
-    Aimbot_RapidFire = false, -- для чистоты отключаем
-    Aimbot_SilentAim = false,
-}
-
--- ========== ПЕРЕМЕННЫЕ ==========
+-- ===== ESP: жёлтый круг на голове =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
-local IsKeyHolding = false
-local AimTarget = nil
-local LastShotTime = 0
-local MenuOpen = true
-local Dragging = false
-local DragStart, DragPos
 
--- ========== ESP (ТОЛЬКО ГОЛОВА, КРУГ) ==========
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
-    if Settings.Aimbot_TeamCheck then
-        if not p.Team or not LocalPlayer.Team then return true end
-        return p.Team ~= LocalPlayer.Team
-    else
-        return true
-    end
+    if not TEAM_CHECK then return true end
+    if not p.Team or not LocalPlayer.Team then return true end
+    return p.Team ~= LocalPlayer.Team
 end
 
-local function CreateHeadESP(p)
-    if not Settings.ESP_Enabled then return end
+local function CreateESP(p)
     if not IsEnemy(p) then return end
-
     local char = p.Character
     if not char then return end
     local head = char:FindFirstChild("Head")
-    if not head then return end
     local hum = char:FindFirstChild("Humanoid")
-    if not hum or hum.Health <= 0 then return end
+    if not head or not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый ESP
-    if ESP_Cache[p] and ESP_Cache[p].Billboard then
-        ESP_Cache[p].Billboard:Destroy()
+    -- Удалить старый
+    if ESP_Cache[p] then
+        ESP_Cache[p]:Destroy()
         ESP_Cache[p] = nil
     end
 
-    -- Создаём BillboardGui с кругом
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = randomString(12)
+    billboard.Name = "ESP_" .. p.Name
     billboard.Adornee = head
     billboard.Size = UDim2.new(1.5, 0, 1.5, 0)
     billboard.StudsOffset = Vector3.new(0, 0.5, 0)
@@ -114,98 +51,64 @@ local function CreateHeadESP(p)
     billboard.LightInfluence = 0
     billboard.Parent = CoreGui
 
-    if syn and syn.protect_gui then
-        syn.protect_gui(billboard)
-    elseif protect_gui then
-        protect_gui(billboard)
-    end
-
     local circle = Instance.new("ImageLabel")
-    circle.Name = randomString(8)
     circle.Size = UDim2.new(1, 0, 1, 0)
     circle.BackgroundTransparency = 1
     circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-    circle.ImageColor3 = Settings.ESP_Color
+    circle.ImageColor3 = ESP_COLOR
     circle.ImageTransparency = 0.3
     circle.ScaleType = Enum.ScaleType.Fit
     circle.Parent = billboard
 
-    ESP_Cache[p] = {
-        Billboard = billboard,
-        Head = head,
-        Circle = circle,
-    }
+    ESP_Cache[p] = billboard
 end
 
 local function RemoveESP(p)
-    if ESP_Cache[p] and ESP_Cache[p].Billboard then
-        ESP_Cache[p].Billboard:Destroy()
+    if ESP_Cache[p] then
+        ESP_Cache[p]:Destroy()
         ESP_Cache[p] = nil
     end
 end
 
-local function RefreshAllESP()
-    for p, _ in pairs(ESP_Cache) do
-        RemoveESP(p)
-    end
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            CreateHeadESP(p)
-        end
-    end
-end
-
--- ========== СОБЫТИЯ ИГРОКОВ ==========
-local function onCharacterAdded(p, char)
+-- События игроков
+local function onCharacterAdded(p)
     if p == LocalPlayer then return end
     task.wait(0.1)
-    CreateHeadESP(p)
-end
-
-local function onCharacterRemoving(p, char)
-    RemoveESP(p)
+    CreateESP(p)
 end
 
 for _, p in pairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
-        if p.Character then
-            CreateHeadESP(p)
-        end
-        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-        p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
+        if p.Character then CreateESP(p) end
+        p.CharacterAdded:Connect(onCharacterAdded)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
     end
 end
 
 Players.PlayerAdded:Connect(function(p)
     if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-    p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
+    p.CharacterAdded:Connect(onCharacterAdded)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
 end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- ========== AIMBOT ==========
+-- ===== AIMBOT: мгновенное наведение на голову =====
 local function IsTeamMate(p)
-    if not Settings.Aimbot_TeamCheck then return false end
+    if not TEAM_CHECK then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
 
--- Проверка видимости (не стенобой, просто честная)
 local function IsVisible(character)
     local head = character:FindFirstChild("Head")
     if not head then return false end
-    local origin = Camera.CFrame.Position
-    local direction = head.Position - origin
-    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
+    local ray = Ray.new(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000)
     local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
     return hit and hit:IsDescendantOf(character)
 end
 
--- Выбор цели: ближайший по 3D дистанции
-local function GetTarget()
-    if not Settings.Aimbot_Enabled then return nil end
-
+local function GetClosestEnemy()
     local closest = nil
     local closestDist = math.huge
     local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
@@ -228,224 +131,47 @@ local function GetTarget()
     return closest
 end
 
+-- Перемещение мыши
+local function MoveMouse(deltaX, deltaY)
+    if mousemoverel then
+        mousemoverel(deltaX, deltaY)
+    elseif syn and syn.input then
+        syn.input.MouseMove(deltaX, deltaY)
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
+    end
+end
+
 -- Управление клавишей
+local isAiming = false
 UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.UserInputType == Settings.Aimbot_Key then
-        IsKeyHolding = true
+    if not gp and input.UserInputType == AIM_KEY then
+        isAiming = true
     end
 end)
-
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Settings.Aimbot_Key then
-        IsKeyHolding = false
-        AimTarget = nil
+    if input.UserInputType == AIM_KEY then
+        isAiming = false
     end
 end)
 
--- Главный цикл (только наведение)
+-- Главный цикл
 RunService.RenderStepped:Connect(function()
-    if Settings.Aimbot_Enabled and IsKeyHolding then
-        AimTarget = GetTarget()
-    else
-        AimTarget = nil
-    end
-
-    if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
-        local head = AimTarget.Character.Head
-        local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
-        if onScreen then
-            local targetPos = Vector2.new(vector.X, vector.Y)
-            local currentPos = UserInputService:GetMouseLocation()
-            local delta = targetPos - currentPos
-
-            -- Мгновенное наведение (без плавности) — быстрое следование
-            if not Settings.Aimbot_SilentAim and delta.Magnitude > 0.5 then
-                MoveMouse(delta.X, delta.Y)
-            end
-
-            -- Автоогонь, если включён
-            if Settings.Aimbot_AutoFire then
-                if tick() - LastShotTime >= 0.12 then  -- ~8 выстрелов/сек
-                    ClickMouse()
-                    LastShotTime = tick()
+    if isAiming then
+        local target = GetClosestEnemy()
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            local head = target.Character.Head
+            local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local targetPos = Vector2.new(vector.X, vector.Y)
+                local mousePos = UserInputService:GetMouseLocation()
+                local delta = targetPos - mousePos
+                if delta.Magnitude > 0.5 then
+                    MoveMouse(delta.X, delta.Y)
                 end
             end
         end
     end
 end)
 
--- ========== МЕНЮ ==========
-local function CreateMenu()
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = randomString(12)
-    ScreenGui.Parent = CoreGui
-
-    if syn and syn.protect_gui then
-        syn.protect_gui(ScreenGui)
-    elseif protect_gui then
-        protect_gui(ScreenGui)
-    end
-
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Name = randomString(8)
-    MainFrame.Size = UDim2.new(0, 260, 0, 250)
-    MainFrame.Position = UDim2.new(0, 50, 0, 50)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    MainFrame.BackgroundTransparency = 0.2
-    MainFrame.Active = true
-    MainFrame.Draggable = false
-    MainFrame.Parent = ScreenGui
-
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 6)
-    UICorner.Parent = MainFrame
-
-    local TopBar = Instance.new("Frame")
-    TopBar.Size = UDim2.new(1, 0, 0, 30)
-    TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    TopBar.BorderSizePixel = 0
-    TopBar.Parent = MainFrame
-
-    local TopBarCorner = Instance.new("UICorner")
-    TopBarCorner.CornerRadius = UDim.new(0, 6)
-    TopBarCorner.Parent = TopBar
-
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, -40, 1, 0)
-    Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aimbot (head)"
-    Title.TextColor3 = Color3.new(1, 1, 1)
-    Title.TextXAlignment = Enum.TextXAlignment.Left
-    Title.Font = Enum.Font.SourceSansBold
-    Title.TextSize = 18
-    Title.Parent = TopBar
-
-    local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-    CloseBtn.Position = UDim2.new(1, -30, 0, 0)
-    CloseBtn.BackgroundTransparency = 1
-    CloseBtn.Text = "X"
-    CloseBtn.TextColor3 = Color3.new(1, 0, 0)
-    CloseBtn.TextScaled = true
-    CloseBtn.Font = Enum.Font.SourceSansBold
-    CloseBtn.Parent = TopBar
-
-    CloseBtn.MouseButton1Click:Connect(function()
-        ScreenGui:Destroy()
-        MenuOpen = false
-    end)
-
-    -- Перетаскивание
-    TopBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            Dragging = true
-            DragStart = input.Position
-            DragPos = MainFrame.Position
-        end
-    end)
-
-    TopBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and Dragging then
-            local delta = input.Position - DragStart
-            MainFrame.Position = UDim2.new(DragPos.X.Scale, DragPos.X.Offset + delta.X, DragPos.Y.Scale, DragPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            Dragging = false
-        end
-    end)
-
-    -- ===== ЭЛЕМЕНТЫ =====
-    local yPos = 40
-
-    local function CreateCheckbox(parent, text, yPos, getter, setter)
-        local bg = Instance.new("Frame")
-        bg.Size = UDim2.new(1, -20, 0, 25)
-        bg.Position = UDim2.new(0, 10, 0, yPos)
-        bg.BackgroundTransparency = 1
-        bg.Parent = parent
-
-        local box = Instance.new("TextButton")
-        box.Size = UDim2.new(0, 20, 0, 20)
-        box.Position = UDim2.new(0, 0, 0.5, -10)
-        box.BackgroundColor3 = getter() and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
-        box.Text = ""
-        box.Parent = bg
-
-        local boxCorner = Instance.new("UICorner")
-        boxCorner.CornerRadius = UDim.new(0, 4)
-        boxCorner.Parent = box
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -30, 1, 0)
-        label.Position = UDim2.new(0, 30, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = text
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Font = Enum.Font.SourceSans
-        label.TextSize = 16
-        label.Parent = bg
-
-        box.MouseButton1Click:Connect(function()
-            local new = not getter()
-            setter(new)
-            box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
-            if text == "ESP Enabled" then
-                RefreshAllESP()
-            end
-        end)
-    end
-
-    CreateCheckbox(MainFrame, "ESP Enabled", yPos,
-        function() return Settings.ESP_Enabled end,
-        function(v) Settings.ESP_Enabled = v end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Aimbot Enabled", yPos,
-        function() return Settings.Aimbot_Enabled end,
-        function(v) Settings.Aimbot_Enabled = v end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Team Check", yPos,
-        function() return Settings.Aimbot_TeamCheck end,
-        function(v)
-            Settings.Aimbot_TeamCheck = v
-            RefreshAllESP()
-        end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Auto Fire", yPos,
-        function() return Settings.Aimbot_AutoFire end,
-        function(v) Settings.Aimbot_AutoFire = v end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Silent Aim", yPos,
-        function() return Settings.Aimbot_SilentAim end,
-        function(v) Settings.Aimbot_SilentAim = v end)
-    yPos = yPos + 35
-
-    local RefreshBtn = Instance.new("TextButton")
-    RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
-    RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
-    RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH ESP"
-    RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
-    RefreshBtn.Font = Enum.Font.SourceSansBold
-    RefreshBtn.TextSize = 16
-    RefreshBtn.Parent = MainFrame
-
-    local BtnCorner = Instance.new("UICorner")
-    BtnCorner.CornerRadius = UDim.new(0, 6)
-    BtnCorner.Parent = RefreshBtn
-
-    RefreshBtn.MouseButton1Click:Connect(RefreshAllESP)
-end
-
--- ========== ЗАПУСК ==========
-CreateMenu()
-RefreshAllESP()
-print("✅ ESP (круг на голове) + Aimbot (слежение за головой). Удерживайте ПКМ для наведения.")
+print("✅ ESP + Aimbot загружены. Удерживайте ПКМ для наведения на голову.")
