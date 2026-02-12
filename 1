@@ -1,108 +1,352 @@
---[[
-    ⚠️ DANGER ZONE ⚠️
-    Этот скрипт 100% приведёт к бану аккаунта в публичных серверах.
-    Используй ТОЛЬКО на альт-аккаунтах и ТОЛЬКО с Krnl/Synapse.
-    Автор не несёт ответственности. Ты предупреждён.
-]]
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+-- Защита CoreGui
+if syn and syn.protect_gui then
+    syn.protect_gui(CoreGui)
+elseif protect_gui then
+    protect_gui(CoreGui)
+end
+
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local DrawingSupported = pcall(Drawing.new, "Square")
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
-    FlingSpeed = 1000,        -- Скорость вращения
-    FlingPower = 10000,       -- Сила выброса
+    FlySpeed = 50,
+    FlyEnabled = false,
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
-local flingEnabled = false
-local flingConnection = nil
-local flingPart = nil
-local spinBV = nil
-local spinBAV = nil
+local flyBV = nil
+local flyBG = nil
+local flyConnection = nil
 
--- ===== СОЗДАНИЕ ФЛИНГ-ОБЪЕКТА =====
-local function CreateFlingPart()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then return nil end
-    
-    -- Создаём невидимую часть
-    local part = Instance.new("Part")
-    part.Name = "FlingPart_" .. math.random(9999)
-    part.Size = Vector3.new(2, 2, 2)
-    part.Anchored = false
-    part.CanCollide = true
-    part.Transparency = 1
-    part.CFrame = root.CFrame * CFrame.new(0, 0, 2)
-    part.Parent = workspace
-    
-    -- Привариваем к персонажу
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = part
-    weld.Part1 = root
-    weld.Parent = part
-    
-    return part
-end
-
--- ===== ВКЛЮЧЕНИЕ ФЛИНГА =====
-local function EnableFling()
-    if flingEnabled then return end
-    
+-- ===== ВКЛЮЧЕНИЕ FLY =====
+local function EnableFly()
     local char = LocalPlayer.Character
     if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then return end
-    
-    -- Создаём флинг-часть
-    flingPart = CreateFlingPart()
-    if not flingPart then return end
-    
-    -- Вращение (крутимся)
-    spinBAV = Instance.new("BodyAngularVelocity")
-    spinBAV.MaxTorque = Vector3.new(9000, 9000, 9000)
-    spinBAV.AngularVelocity = Vector3.new(0, Settings.FlingSpeed, 0)
-    spinBAV.P = 10000
-    spinBAV.Parent = flingPart
-    
-    -- Импульс для выброса
-    spinBV = Instance.new("BodyVelocity")
-    spinBV.MaxForce = Vector3.new(9000, 9000, 9000)
-    spinBV.Velocity = Vector3.new(0, 50, 0)
-    spinBV.Parent = flingPart
-    
-    flingEnabled = true
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+
+    hum.PlatformStand = true
+
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.Name = "FlyBV_" .. math.random(9999)
+    flyBV.MaxForce = Vector3.new(9000, 9000, 9000)
+    flyBV.Velocity = Vector3.new(0, 0, 0)
+    flyBV.Parent = root
+
+    flyBG = Instance.new("BodyGyro")
+    flyBG.Name = "FlyBG_" .. math.random(9999)
+    flyBG.MaxTorque = Vector3.new(9000, 9000, 9000)
+    flyBG.P = 1000
+    flyBG.D = 500
+    flyBG.CFrame = root.CFrame
+    flyBG.Parent = root
+
+    Settings.FlyEnabled = true
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not Settings.FlyEnabled or not char or not root then
+            DisableFly()
+            return
+        end
+
+        local move = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            move = move + Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            move = move - Camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            move = move - Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            move = move + Camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            move = move + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            move = move - Vector3.new(0, 1, 0)
+        end
+
+        if move.Magnitude > 0 then
+            move = move.Unit * Settings.FlySpeed
+        end
+
+        flyBV.Velocity = move
+        flyBG.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
+    end)
+
+    Settings.FlyEnabled = true
 end
 
--- ===== ВЫКЛЮЧЕНИЕ ФЛИНГА =====
-local function DisableFling()
-    flingEnabled = false
-    if spinBAV then spinBAV:Destroy() spinBAV = nil end
-    if spinBV then spinBV:Destroy() spinBV = nil end
-    if flingPart then flingPart:Destroy() flingPart = nil end
+-- ===== ВЫКЛЮЧЕНИЕ FLY =====
+local function DisableFly()
+    Settings.FlyEnabled = false
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+    if flyBV then
+        flyBV:Destroy()
+        flyBV = nil
+    end
+    if flyBG then
+        flyBG:Destroy()
+        flyBG = nil
+    end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+        end
+    end
 end
 
--- ===== УПРАВЛЕНИЕ =====
+-- ===== ПЕРЕКЛЮЧЕНИЕ ПО КНОПКЕ F =====
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.KeyCode == Enum.KeyCode.A then  -- Нажми "A" для флинга
-        if flingEnabled then
-            DisableFling()
+    if input.KeyCode == Enum.KeyCode.F then
+        if Settings.FlyEnabled then
+            DisableFly()
         else
-            EnableFling()
+            EnableFly()
         end
     end
 end)
 
--- Отключаем при респавне
+-- ===== ОТКЛЮЧАЕМ ПРИ РЕСПАВНЕ =====
 LocalPlayer.CharacterAdded:Connect(function()
-    if flingEnabled then DisableFling() end
+    if Settings.FlyEnabled then
+        DisableFly()
+    end
 end)
 
-print("⚠️ ФЛИНГ-СКРИПТ АКТИВИРОВАН. Нажми A для включения/выключения.")
-print("⚠️ Твой аккаунт будет забанен. Используй альт.")
+-- ===== МЕНЮ =====
+if DrawingSupported then
+    -- МЕНЮ ЧЕРЕЗ DRAWING (БЕЗ УТЕЧЕК)
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 30)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(220, 120)
+    bg.Position = Vector2.new(50, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.fromRGB(0, 200, 255)
+    title.Position = Vector2.new(60, 55)
+    title.Text = "FLY SIMPLE"
+    title.Size = 20
+    title.ZIndex = 1000
+
+    local status = Drawing.new("Text")
+    status.Visible = true
+    status.Color = Color3.fromRGB(255, 100, 100)
+    status.Position = Vector2.new(60, 80)
+    status.Text = "FLY: OFF (F)"
+    status.Size = 16
+    status.ZIndex = 1000
+
+    local speedText = Drawing.new("Text")
+    speedText.Visible = true
+    speedText.Color = Color3.new(1,1,1)
+    speedText.Position = Vector2.new(60, 105)
+    speedText.Text = "Speed: " .. Settings.FlySpeed
+    speedText.Size = 14
+    speedText.ZIndex = 1000
+
+    local minus = Drawing.new("Square")
+    minus.Visible = true
+    minus.Color = Color3.fromRGB(80,80,80)
+    minus.Size = Vector2.new(20,20)
+    minus.Position = Vector2.new(160, 103)
+    minus.Filled = true
+    minus.ZIndex = 1000
+    local minusTxt = Drawing.new("Text")
+    minusTxt.Visible = true
+    minusTxt.Color = Color3.new(1,1,1)
+    minusTxt.Position = Vector2.new(166, 103)
+    minusTxt.Text = "-"
+    minusTxt.Size = 16
+    minusTxt.ZIndex = 1001
+
+    local plus = Drawing.new("Square")
+    plus.Visible = true
+    plus.Color = Color3.fromRGB(80,80,80)
+    plus.Size = Vector2.new(20,20)
+    plus.Position = Vector2.new(185, 103)
+    plus.Filled = true
+    plus.ZIndex = 1000
+    local plusTxt = Drawing.new("Text")
+    plusTxt.Visible = true
+    plusTxt.Color = Color3.new(1,1,1)
+    plusTxt.Position = Vector2.new(191, 103)
+    plusTxt.Text = "+"
+    plusTxt.Size = 16
+    plusTxt.ZIndex = 1001
+
+    local close = Drawing.new("Text")
+    close.Visible = true
+    close.Color = Color3.new(1,0,0)
+    close.Position = Vector2.new(250, 55)
+    close.Text = "X"
+    close.Size = 20
+    close.ZIndex = 1000
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 50 and m.X <= 270 and m.Y >= 50 and m.Y <= 170 then
+                if m.X >= 160 and m.X <= 180 and m.Y >= 103 and m.Y <= 123 then
+                    Settings.FlySpeed = math.max(20, Settings.FlySpeed - 5)
+                    speedText.Text = "Speed: " .. Settings.FlySpeed
+                end
+                if m.X >= 185 and m.X <= 205 and m.Y >= 103 and m.Y <= 123 then
+                    Settings.FlySpeed = math.min(200, Settings.FlySpeed + 5)
+                    speedText.Text = "Speed: " .. Settings.FlySpeed
+                end
+            end
+            if m.X >= 250 and m.X <= 270 and m.Y >= 55 and m.Y <= 75 then
+                bg.Visible = false
+                title.Visible = false
+                status.Visible = false
+                speedText.Visible = false
+                minus.Visible = false
+                minusTxt.Visible = false
+                plus.Visible = false
+                plusTxt.Visible = false
+                close.Visible = false
+                if Settings.FlyEnabled then DisableFly() end
+            end
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if Settings.FlyEnabled then
+            status.Text = "FLY: ON (F)"
+            status.Color = Color3.fromRGB(100, 255, 100)
+        else
+            status.Text = "FLY: OFF (F)"
+            status.Color = Color3.fromRGB(255, 100, 100)
+        end
+    end)
+
+else
+    -- FALLBACK: МЕНЮ ЧЕРЕЗ SCREENGUI
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "FlyMenu_" .. math.random(9999)
+    ScreenGui.Parent = CoreGui
+    if syn and syn.protect_gui then syn.protect_gui(ScreenGui) elseif protect_gui then protect_gui(ScreenGui) end
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 220, 0, 130)
+    MainFrame.Position = UDim2.new(0, 50, 0, 50)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    MainFrame.BackgroundTransparency = 0.1
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = MainFrame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.BackgroundTransparency = 1
+    Title.Text = "FLY SIMPLE"
+    Title.TextColor3 = Color3.fromRGB(0,200,255)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 20
+    Title.Parent = MainFrame
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+    CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(150,0,0)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.new(1,1,1)
+    CloseBtn.Font = Enum.Font.SourceSansBold
+    CloseBtn.TextSize = 20
+    CloseBtn.Parent = MainFrame
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 6)
+    CloseCorner.Parent = CloseBtn
+    CloseBtn.MouseButton1Click:Connect(function()
+        if Settings.FlyEnabled then DisableFly() end
+        ScreenGui:Destroy()
+    end)
+
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Size = UDim2.new(1, -20, 0, 25)
+    StatusLabel.Position = UDim2.new(0, 10, 0, 35)
+    StatusLabel.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    StatusLabel.Text = "FLY: OFF (F)"
+    StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
+    StatusLabel.Font = Enum.Font.SourceSansBold
+    StatusLabel.TextSize = 18
+    StatusLabel.Parent = MainFrame
+    local StatusCorner = Instance.new("UICorner")
+    StatusCorner.CornerRadius = UDim.new(0, 6)
+    StatusCorner.Parent = StatusLabel
+
+    local SpeedLabel = Instance.new("TextLabel")
+    SpeedLabel.Size = UDim2.new(1, -70, 0, 25)
+    SpeedLabel.Position = UDim2.new(0, 10, 0, 70)
+    SpeedLabel.BackgroundTransparency = 1
+    SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
+    SpeedLabel.TextColor3 = Color3.new(1,1,1)
+    SpeedLabel.Font = Enum.Font.SourceSans
+    SpeedLabel.TextSize = 16
+    SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    SpeedLabel.Parent = MainFrame
+
+    local MinusBtn = Instance.new("TextButton")
+    MinusBtn.Size = UDim2.new(0, 25, 0, 25)
+    MinusBtn.Position = UDim2.new(1, -70, 0, 70)
+    MinusBtn.Text = "-"
+    MinusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    MinusBtn.Parent = MainFrame
+    MinusBtn.MouseButton1Click:Connect(function()
+        Settings.FlySpeed = math.max(20, Settings.FlySpeed - 5)
+        SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
+    end)
+
+    local PlusBtn = Instance.new("TextButton")
+    PlusBtn.Size = UDim2.new(0, 25, 0, 25)
+    PlusBtn.Position = UDim2.new(1, -40, 0, 70)
+    PlusBtn.Text = "+"
+    PlusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    PlusBtn.Parent = MainFrame
+    PlusBtn.MouseButton1Click:Connect(function()
+        Settings.FlySpeed = math.min(200, Settings.FlySpeed + 5)
+        SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if Settings.FlyEnabled then
+            StatusLabel.Text = "FLY: ON (F)"
+            StatusLabel.TextColor3 = Color3.fromRGB(100,255,100)
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(40,80,40)
+        else
+            StatusLabel.Text = "FLY: OFF (F)"
+            StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
+            StatusLabel.BackgroundColor3 = Color3.fromRGB(80,40,40)
+        end
+    end)
+end
+
+print("✅ FLY загружен. Нажми F для полёта. Скорость регулируется в меню.")
