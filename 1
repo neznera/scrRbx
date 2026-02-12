@@ -16,7 +16,7 @@ local Camera = workspace.CurrentCamera
 -- ========== ПРОВЕРКА ПОДДЕРЖКИ DRAWING ==========
 local DrawingSupported = pcall(Drawing.new, "Square")
 
--- ========== УНИВЕРСАЛЬНЫЙ МЕТОД ДВИЖЕНИЯ МЫШИ ==========
+-- ========== УНИВЕРСАЛЬНОЕ УПРАВЛЕНИЕ МЫШЬЮ ==========
 local function MoveMouse(deltaX, deltaY)
     if mousemoverel then
         mousemoverel(deltaX, deltaY)
@@ -60,7 +60,7 @@ local Settings = {
     -- ESP
     ESP_Enabled = true,
     ESP_Transparency = 0.4,
-    ESP_Color = Color3.fromRGB(255, 255, 0),
+    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый
 
     -- Aimbot
     Aimbot_Enabled = true,
@@ -71,29 +71,77 @@ local Settings = {
     Aimbot_Wallbang = false,
     Aimbot_NoRecoil = true,
     Aimbot_RapidFire = true,
-    Aimbot_RapidFireDelay = 0.07,
+    Aimbot_RapidFireDelay = 0.06,
     Aimbot_AutoFire = true,
     Aimbot_SilentAim = false,
+
+    -- Fast Bullets
+    FastBullets_Enabled = true,
+    FastBullets_Multiplier = 5,
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
-local ESP_Cache = setmetatable({}, {__mode = "v"})
-local DrawingBoxes = {}
+local ESP_3D_Cache = setmetatable({}, {__mode = "v"})  -- для 3D боксов
+local ESP_2D_Cache = {}                               -- для Drawing боксов (части)
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
 local LastTargetUpdate = 0
-local TARGET_UPDATE_RATE = 0.2
+local TARGET_UPDATE_RATE = 0.15
 local MenuOpen = true
 local Dragging = false
 local DragStart, DragPos
 local LastRecoilReset = 0
+local LastFastBulletApply = 0
 
--- ========== NO RECOIL (ПРИ КАЖДОМ ВЫСТРЕЛЕ) ==========
+-- ========== FAST BULLETS (УСКОРЕНИЕ ПУЛЬ) ==========
+local function ApplyFastBullets()
+    if not Settings.FastBullets_Enabled then return end
+    local now = tick()
+    if now - LastFastBulletApply < 0.2 then return end  -- не спамим
+
+    local character = LocalPlayer.Character
+    if not character then return end
+    local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
+    if not tool then return end
+
+    local velocityProps = {
+        "BulletVelocity", "Velocity", "ProjectileVelocity", "Speed",
+        "BulletSpeed", "LaunchSpeed", "ShotVelocity", "MaxSpeed", "ProjectileSpeed"
+    }
+
+    for _, propName in ipairs(velocityProps) do
+        pcall(function()
+            -- Прямое свойство
+            if tool[propName] ~= nil then
+                if type(tool[propName]) == "number" then
+                    tool[propName] = tool[propName] * Settings.FastBullets_Multiplier
+                elseif tool[propName]:IsA("NumberValue") then
+                    tool[propName].Value = tool[propName].Value * Settings.FastBullets_Multiplier
+                end
+            end
+            -- В дочерних объектах
+            for _, child in pairs(tool:GetDescendants()) do
+                if child:IsA("Part") or child:IsA("MeshPart") then
+                    if child[propName] ~= nil then
+                        if type(child[propName]) == "number" then
+                            child[propName] = child[propName] * Settings.FastBullets_Multiplier
+                        elseif child[propName]:IsA("NumberValue") then
+                            child[propName].Value = child[propName].Value * Settings.FastBullets_Multiplier
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    LastFastBulletApply = now
+end
+
+-- ========== NO RECOIL ==========
 local function ApplyNoRecoil()
     if not Settings.Aimbot_NoRecoil then return end
     local now = tick()
-    if now - LastRecoilReset < 0.1 then return end -- не спамим
+    if now - LastRecoilReset < 0.1 then return end
 
     local character = LocalPlayer.Character
     if not character then return end
@@ -114,66 +162,89 @@ local function ApplyNoRecoil()
     LastRecoilReset = now
 end
 
--- ========== ESP (2D DRAWING) ==========
+-- ========== ESP (2D DRAWING) НА ВСЕ ЧАСТИ ==========
 if DrawingSupported then
+    -- Очистка при выходе игрока
+    Players.PlayerRemoving:Connect(function(p)
+        if ESP_2D_Cache[p] then
+            for _, box in pairs(ESP_2D_Cache[p]) do
+                box:Remove()
+            end
+            ESP_2D_Cache[p] = nil
+        end
+    end)
+
     local function UpdateDrawingESP()
         if not Settings.ESP_Enabled then
-            for _, box in pairs(DrawingBoxes) do
-                if box then box.Visible = false end
+            for _, boxes in pairs(ESP_2D_Cache) do
+                for _, box in pairs(boxes) do
+                    box.Visible = false
+                end
             end
             return
         end
 
         for _, p in pairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-                local root = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso") or p.Character:FindFirstChild("UpperTorso")
-                if root then
-                    local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                local char = p.Character
+                local parts = {}
+                -- Собираем все видимые части
+                for _, part in pairs(char:GetChildren()) do
+                    if part:IsA("BasePart") and part.Transparency < 1 then
+                        table.insert(parts, part)
+                    end
+                end
+
+                -- Создаём или обновляем боксы для каждой части
+                if not ESP_2D_Cache[p] then
+                    ESP_2D_Cache[p] = {}
+                end
+                local boxes = ESP_2D_Cache[p]
+
+                -- Делаем все боксы невидимыми, потом покажем нужные
+                for _, box in pairs(boxes) do
+                    box.Visible = false
+                end
+
+                for i, part in ipairs(parts) do
+                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
                     if onScreen then
-                        local dist = (Camera.CFrame.Position - root.Position).Magnitude
-                        local scale = math.clamp(600 / dist, 0.6, 2)
-                        local width = 40 * scale
-                        local height = 70 * scale
+                        -- Размер бокса пропорционален размеру части и расстоянию
+                        local dist = (Camera.CFrame.Position - part.Position).Magnitude
+                        local scale = math.clamp(300 / dist, 0.5, 2)
+                        local width = part.Size.X * 40 * scale
+                        local height = part.Size.Y * 40 * scale
                         local x = pos.X - width/2
                         local y = pos.Y - height/2
 
-                        if not DrawingBoxes[p] then
-                            DrawingBoxes[p] = Drawing.new("Square")
-                            DrawingBoxes[p].Thickness = 2
-                            DrawingBoxes[p].Filled = false
-                            DrawingBoxes[p].ZIndex = 5
+                        if not boxes[i] then
+                            boxes[i] = Drawing.new("Square")
+                            boxes[i].Thickness = 2
+                            boxes[i].Filled = false
+                            boxes[i].ZIndex = 5
                         end
-                        local box = DrawingBoxes[p]
+                        local box = boxes[i]
                         box.Visible = true
                         box.Size = Vector2.new(width, height)
                         box.Position = Vector2.new(x, y)
                         box.Color = Settings.ESP_Color
                         box.Transparency = Settings.ESP_Transparency
-                    else
-                        if DrawingBoxes[p] then
-                            DrawingBoxes[p].Visible = false
-                        end
                     end
                 end
             else
-                if DrawingBoxes[p] then
-                    DrawingBoxes[p].Visible = false
+                if ESP_2D_Cache[p] then
+                    for _, box in pairs(ESP_2D_Cache[p]) do
+                        box.Visible = false
+                    end
                 end
             end
         end
     end
 
     RunService.RenderStepped:Connect(UpdateDrawingESP)
-
-    Players.PlayerRemoving:Connect(function(p)
-        if DrawingBoxes[p] then
-            DrawingBoxes[p]:Remove()
-            DrawingBoxes[p] = nil
-        end
-    end)
 else
-    -- ========== ESP (3D, ОДИН БОКС) ==========
-    print("⚠️ Drawing не поддерживается, использую 3D боксы")
+    -- ========== ESP (3D) НА ВСЕ ЧАСТИ ==========
+    print("⚠️ Drawing не поддерживается, использую 3D боксы на каждую часть")
     local ESP_Folder = Instance.new("Folder")
     ESP_Folder.Name = "ESP_" .. randomString(6)
     ESP_Folder.Parent = CoreGui
@@ -184,39 +255,76 @@ else
         if not char then return end
         local hum = char:FindFirstChild("Humanoid")
         if not hum or hum.Health <= 0 then return end
-        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
-        if not root then return end
 
-        local box = Instance.new("BoxHandleAdornment")
-        box.Name = randomString(8)
-        box.Adornee = root
-        box.AlwaysOnTop = true
-        box.ZIndex = 10
-        box.Size = root.Size * 1.8
-        box.Transparency = Settings.ESP_Transparency
-        box.Color = BrickColor.new(Settings.ESP_Color)
-        box.Parent = ESP_Folder
-        ESP_Cache[p] = {Container = box}
+        local container = Instance.new("Folder")
+        container.Name = randomString(12)
+        container.Parent = ESP_Folder
+        if syn and syn.protect_gui then syn.protect_gui(container) elseif protect_gui then protect_gui(container) end
+
+        local adornments = {}
+        local function addBoxes()
+            for _, part in pairs(char:GetChildren()) do
+                if part:IsA("BasePart") and part.Transparency < 1 then
+                    local box = Instance.new("BoxHandleAdornment")
+                    box.Name = randomString(8)
+                    box.Adornee = part
+                    box.AlwaysOnTop = true
+                    box.ZIndex = 10
+                    box.Size = part.Size * 1.1
+                    box.Transparency = Settings.ESP_Transparency
+                    box.Color = BrickColor.new(Settings.ESP_Color)
+                    box.Parent = container
+                    adornments[part] = box
+                end
+            end
+        end
+        addBoxes()
+
+        local connection
+        connection = char.ChildAdded:Connect(function(child)
+            if child:IsA("BasePart") and child.Transparency < 1 then
+                local box = Instance.new("BoxHandleAdornment")
+                box.Name = randomString(8)
+                box.Adornee = child
+                box.AlwaysOnTop = true
+                box.ZIndex = 10
+                box.Size = child.Size * 1.1
+                box.Transparency = Settings.ESP_Transparency
+                box.Color = BrickColor.new(Settings.ESP_Color)
+                box.Parent = container
+                adornments[child] = box
+            end
+        end)
+
+        ESP_3D_Cache[p] = {
+            Container = container,
+            Connections = {connection},
+        }
     end
 
     function RemoveESP(p)
-        if ESP_Cache[p] and ESP_Cache[p].Container then
-            ESP_Cache[p].Container:Destroy()
-            ESP_Cache[p] = nil
+        if ESP_3D_Cache[p] then
+            for _, conn in pairs(ESP_3D_Cache[p].Connections) do conn:Disconnect() end
+            if ESP_3D_Cache[p].Container then ESP_3D_Cache[p].Container:Destroy() end
+            ESP_3D_Cache[p] = nil
         end
     end
 
     function RefreshAllESP()
-        for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
+        for p, _ in pairs(ESP_3D_Cache) do RemoveESP(p) end
         for _, p in pairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then CreateESP(p) end
         end
     end
 
     function UpdateESPTransparency()
-        for p, data in pairs(ESP_Cache) do
+        for p, data in pairs(ESP_3D_Cache) do
             if data.Container then
-                data.Container.Transparency = Settings.ESP_Transparency
+                for _, child in pairs(data.Container:GetChildren()) do
+                    if child:IsA("BoxHandleAdornment") then
+                        child.Transparency = Settings.ESP_Transparency
+                    end
+                end
             end
         end
     end
@@ -276,14 +384,15 @@ local function GetTarget()
                 if head then
                     local dist3D = myHead and (head.Position - myHead.Position).Magnitude or math.huge
                     local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
-                    local dist2D = onScreen and (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude or math.huge
-                    table.insert(targets, {
-                        player = p,
-                        head = head,
-                        dist3D = dist3D,
-                        dist2D = dist2D,
-                        onScreen = onScreen
-                    })
+                    if onScreen then
+                        local dist2D = (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude
+                        table.insert(targets, {
+                            player = p,
+                            head = head,
+                            dist3D = dist3D,
+                            dist2D = dist2D,
+                        })
+                    end
                 end
             end
         end
@@ -295,7 +404,7 @@ local function GetTarget()
         local best = nil
         local bestDist = Settings.Aimbot_FOV
         for _, t in ipairs(targets) do
-            if t.onScreen and t.dist2D < bestDist then
+            if t.dist2D < bestDist then
                 bestDist = t.dist2D
                 best = t.player
             end
@@ -307,7 +416,7 @@ local function GetTarget()
     end
 end
 
--- ========== AIMBOT EXECUTION ==========
+-- ========== УПРАВЛЕНИЕ КЛАВИШЕЙ ==========
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Settings.Aimbot_Key then
         IsKeyHolding = true
@@ -321,15 +430,16 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- ========== ГЛАВНЫЙ ЦИКЛ ==========
 RunService.RenderStepped:Connect(function()
-    -- No Recoil (сбрасываем при каждом выстреле)
-    if Settings.Aimbot_NoRecoil and (Settings.Aimbot_RapidFire or Settings.Aimbot_AutoFire) then
-        ApplyNoRecoil()
-    end
+    -- Fast Bullets
+    ApplyFastBullets()
+    -- No Recoil
+    ApplyNoRecoil()
 
     local now = tick()
 
-    -- Обновление цели (не каждый кадр)
+    -- Обновление цели
     if Settings.Aimbot_Enabled and IsKeyHolding then
         if now - LastTargetUpdate >= TARGET_UPDATE_RATE then
             AimTarget = GetTarget()
@@ -346,7 +456,7 @@ RunService.RenderStepped:Connect(function()
         if onScreen then
             local targetPos = Vector2.new(vector.X, vector.Y)
 
-            -- Move mouse
+            -- Move mouse (если не Silent Aim)
             if not Settings.Aimbot_SilentAim then
                 local currentPos = UserInputService:GetMouseLocation()
                 local delta = targetPos - currentPos
@@ -380,7 +490,7 @@ local function CreateMenu()
 
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = randomString(8)
-    MainFrame.Size = UDim2.new(0, 280, 0, 550)
+    MainFrame.Size = UDim2.new(0, 280, 0, 650)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     MainFrame.BackgroundTransparency = 0.2
@@ -406,7 +516,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aimbot (FIXED)"
+    Title.Text = "ESP + Aim God (FULL)"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -450,7 +560,7 @@ local function CreateMenu()
         end
     end)
 
-    -- ===== ЭЛЕМЕНТЫ МЕНЮ =====
+    -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
     local yPos = 40
 
     local function CreateCheckbox(parent, text, yPos, getter, setter)
@@ -618,7 +728,7 @@ local function CreateMenu()
         end)
     end
 
-    -- === ПОСТРОЕНИЕ ===
+    -- === ПОСТРОЕНИЕ МЕНЮ ===
     CreateCheckbox(MainFrame, "ESP Enabled", yPos, 
         function() return Settings.ESP_Enabled end,
         function(v) Settings.ESP_Enabled = v end)
@@ -681,13 +791,25 @@ local function CreateMenu()
     CreateCheckbox(MainFrame, "Silent Aim", yPos,
         function() return Settings.Aimbot_SilentAim end,
         function(v) Settings.Aimbot_SilentAim = v end)
-    yPos = yPos + 45
+    yPos = yPos + 35
+
+    -- Fast Bullets
+    CreateCheckbox(MainFrame, "Fast Bullets", yPos,
+        function() return Settings.FastBullets_Enabled end,
+        function(v) Settings.FastBullets_Enabled = v end)
+    yPos = yPos + 35
+
+    CreateSlider(MainFrame, "Bullet Speed Multiplier", yPos,
+        function() return Settings.FastBullets_Multiplier end,
+        function(v) Settings.FastBullets_Multiplier = v end,
+        2, 20, "%.0fx")
+    yPos = yPos + 50
 
     local RefreshBtn = Instance.new("TextButton")
     RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
     RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
     RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH ESP"
+    RefreshBtn.Text = "REFRESH ESP (3D MODE)"
     RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
     RefreshBtn.Font = Enum.Font.SourceSansBold
     RefreshBtn.TextSize = 16
@@ -709,4 +831,4 @@ CreateMenu()
 if not DrawingSupported then
     RefreshAllESP()
 end
-print("✅ ESP + Aimbot ИСПРАВЛЕН. Удерживайте ПКМ для наведения. Стреляет быстро, без отдачи, стены игнорируются при включении Wallbang.")
+print("✅ ESP на все части + Aimbot + Fast Bullets + Rapid Fire + No Recoil. Удерживайте ПКМ для наведения.")
