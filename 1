@@ -1,19 +1,51 @@
+--[[
+    ███████╗██╗  ██╗██████╗ ██╗      ██████╗ ██████╗ ███████╗██████╗ 
+    ██╔════╝╚██╗██╔╝██╔══██╗██║     ██╔═══██╗██╔══██╗██╔════╝██╔══██╗
+    █████╗   ╚███╔╝ ██████╔╝██║     ██║   ██║██████╔╝█████╗  ██████╔╝
+    ██╔══╝   ██╔██╗ ██╔═══╝ ██║     ██║   ██║██╔══██╗██╔══╝  ██╔══██╗
+    ███████╗██╔╝ ██╗██║     ███████╗╚██████╔╝██║  ██║███████╗██║  ██║
+    ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+
+    ███████╗██████╗  ██████╗ ██████╗ ██╗██╗     ███████╗██████╗ 
+    ██╔════╝██╔══██╗██╔═══██╗██╔══██╗██║██║     ██╔════╝██╔══██╗
+    █████╗  ██████╔╝██║   ██║██████╔╝██║██║     █████╗  ██████╔╝
+    ██╔══╝  ██╔══██╗██║   ██║██╔══██╗██║██║     ██╔══╝  ██╔══██╗
+    ███████╗██║  ██║╚██████╔╝██║  ██║██║███████╗███████╗██║  ██║
+    ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
+
+    ██╗   ██╗████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗
+    ██║   ██║╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝
+    ██║   ██║   ██║   ██║██╔████╔██║███████║   ██║   █████╗  
+    ██║   ██║   ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝  
+    ╚██████╔╝   ██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗
+     ╚═════╝    ╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
+
+    VERSION: 3.0.0 (FULL OBJECT CONTROL)
+    AUTHOR: Ваш личный эксплоит-архитектор
+    DISCLAIMER: Только для альт-аккаунтов. 
+                С великой силой приходит великая ответственность.
+]]
+
+-- =====================================================================
+-- БЛОК 1: ЗАЩИТА И БЕЗОПАСНОСТЬ (Случайные имена, protect_gui, gethui)
+-- =====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
--- Защита CoreGui
+-- Анти-античит: защищаем CoreGui и все дочерние объекты
 if syn and syn.protect_gui then
     syn.protect_gui(CoreGui)
 elseif protect_gui then
     protect_gui(CoreGui)
 end
 
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-
--- ===== СЛУЧАЙНЫЕ ИМЕНА =====
+-- Генератор случайных строк для имён объектов (чтобы античит не сканировал по имени)
 local function randomString(len)
     local str = ""
     for i = 1, len do
@@ -22,334 +54,799 @@ local function randomString(len)
     return str
 end
 
--- ===== НАСТРОЙКИ =====
+-- =====================================================================
+-- БЛОК 2: ГЛОБАЛЬНЫЕ НАСТРОЙКИ (ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ)
+-- =====================================================================
 local Settings = {
-    FlySpeed = 50,
+    -- Целевой объект
+    SelectedObject = nil,
+    SelectedObjectPath = "",
+    SelectedObjectClass = "",
+    SelectedObjectName = "",
+    
+    -- Настройки подсветки
+    HighlightEnabled = true,
+    HighlightColor = Color3.fromRGB(255, 50, 50),  -- Красный
+    HighlightTransparency = 0.4,
+    HighlightForAll = false,      -- false = видно только тебе
+    
+    -- Настройки перемещения
+    MoveSpeed = 5,
+    RotationSpeed = 5,
+    
+    -- Настройки восстановления
+    BackupObject = nil,           -- для функции "вернуть"
+    BackupParent = nil,
+    
+    -- Интерфейс
+    MenuVisible = true,
+    Dragging = false,
+    DragStart = nil,
+    DragPos = nil,
 }
 
--- ===== ПЕРЕМЕННЫЕ FLY =====
-local flyEnabled = false
-local flyBV = nil
-local flyBG = nil
-local flyConnection = nil
+-- =====================================================================
+-- БЛОК 3: ФУНКЦИИ ОПРЕДЕЛЕНИЯ ЦЕЛИ (Mouse Target + Info)
+-- =====================================================================
 
--- ===== ПЕРЕМЕННЫЕ NOCLIP =====
-local noclipEnabled = false
-local noclipConnection = nil
+-- Получить полный путь объекта (как в Explorer'e)
+local function GetFullPath(obj)
+    if not obj then return "None" end
+    local path = obj:GetFullName()
+    return path
+end
 
--- ===== ФУНКЦИИ FLY =====
-local function enableFly()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not root or not hum then return end
+-- Обновить информацию о выбранном объекте в GUI
+local function UpdateSelectedInfo()
+    if not Settings.SelectedObject then
+        Settings.SelectedObjectPath = "None"
+        Settings.SelectedObjectClass = "None"
+        Settings.SelectedObjectName = "None"
+        return
+    end
+    
+    -- Проверяем, существует ли ещё объект
+    local success, result = pcall(function()
+        return Settings.SelectedObject and Settings.SelectedObject.Parent
+    end)
+    
+    if not success or not result then
+        Settings.SelectedObject = nil
+        Settings.SelectedObjectPath = "Object destroyed"
+        Settings.SelectedObjectClass = "N/A"
+        Settings.SelectedObjectName = "N/A"
+        return
+    end
+    
+    Settings.SelectedObjectPath = GetFullPath(Settings.SelectedObject)
+    Settings.SelectedObjectClass = Settings.SelectedObject.ClassName
+    Settings.SelectedObjectName = Settings.SelectedObject.Name
+end
 
-    hum.PlatformStand = true
+-- =====================================================================
+-- БЛОК 4: HIGHLIGHT — ВИЗУАЛЬНАЯ ПОДСВЕТКА (РАБОТАЕТ СКВОЗЬ СТЕНЫ)
+-- =====================================================================
+local HighlightCache = setmetatable({}, {__mode = "v"})
 
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.Name = randomString(12)
-    flyBV.MaxForce = Vector3.new(4000, 4000, 4000)
-    flyBV.Velocity = Vector3.new(0, 0, 0)
-    flyBV.Parent = root
-
-    flyBG = Instance.new("BodyGyro")
-    flyBG.Name = randomString(12)
-    flyBG.MaxTorque = Vector3.new(4000, 4000, 4000)
-    flyBG.P = 1000
-    flyBG.D = 500
-    flyBG.CFrame = root.CFrame
-    flyBG.Parent = root
-
+local function UpdateHighlight()
+    -- Удаляем старую подсветку
+    if HighlightCache.Object then
+        pcall(function()
+            HighlightCache.Object:Destroy()
+        end)
+        HighlightCache.Object = nil
+    end
+    
+    if not Settings.HighlightEnabled or not Settings.SelectedObject then
+        return
+    end
+    
+    -- Создаём подсветку
+    local highlight = Instance.new("Highlight")
+    highlight.Name = randomString(12)
+    highlight.Adornee = Settings.SelectedObject
+    highlight.FillColor = Settings.HighlightColor
+    highlight.FillTransparency = Settings.HighlightTransparency
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop  -- видно сквозь стены
+    
+    -- Видимость: для всех или только для локального игрока?
+    if not Settings.HighlightForAll then
+        highlight.Parent = CoreGui
+    else
+        -- Для всех: помещаем в workspace, сервер автоматически реплицирует
+        -- Но нужно быть осторожным — это может задетектить античит
+        highlight.Parent = workspace
+    end
+    
+    -- Защита GUI
     if syn and syn.protect_gui then
-        syn.protect_gui(flyBV)
-        syn.protect_gui(flyBG)
+        syn.protegui(highlight)
     elseif protect_gui then
-        protect_gui(flyBV)
-        protect_gui(flyBG)
+        protect_gui(highlight)
     end
-
-    flyEnabled = true
-
-    flyConnection = RunService.Heartbeat:Connect(function()
-        if not flyEnabled or not char or not root then
-            disableFly()
-            return
-        end
-
-        local move = Vector3.new()
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            move = move + Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            move = move - Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            move = move - Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            move = move + Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            move = move + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            move = move - Vector3.new(0, 1, 0)
-        end
-
-        if move.Magnitude > 0 then
-            move = move.Unit * Settings.FlySpeed
-        end
-
-        flyBV.Velocity = move
-        flyBG.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
-    end)
+    
+    HighlightCache.Object = highlight
 end
 
-local function disableFly()
-    flyEnabled = false
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-    if flyBV then
-        flyBV:Destroy()
-        flyBV = nil
-    end
-    if flyBG then
-        flyBG:Destroy()
-        flyBG = nil
-    end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-        end
-    end
-end
+-- =====================================================================
+-- БЛОК 5: ФУНКЦИИ УПРАВЛЕНИЯ ОБЪЕКТАМИ (УДАЛЕНИЕ, ПЕРЕМЕЩЕНИЕ, ВОССТАНОВЛЕНИЕ)
+-- =====================================================================
 
-local function toggleFly()
-    if flyEnabled then
-        disableFly()
+-- 5.1: УДАЛЕНИЕ ОБЪЕКТА (С ВОЗМОЖНОСТЬЮ ВОССТАНОВЛЕНИЯ)
+local function DeleteObject(permanent)
+    if not Settings.SelectedObject then
+        print("⚠️ Нет выбранного объекта")
+        return
+    end
+    
+    -- Сохраняем бэкап для восстановления
+    if not permanent then
+        Settings.BackupObject = Settings.SelectedObject
+        Settings.BackupParent = Settings.SelectedObject.Parent
+    end
+    
+    -- Удаляем объект [citation:1][citation:4]
+    local obj = Settings.SelectedObject
+    Settings.SelectedObject = nil
+    UpdateHighlight()
+    
+    if permanent then
+        obj:Destroy()
+        print("✅ Объект уничтожен навсегда")
+        Settings.BackupObject = nil
+        Settings.BackupParent = nil
     else
-        enableFly()
+        obj.Parent = nil  -- Просто убираем из иерархии, можно вернуть [citation:1]
+        print("✅ Объект скрыт (можно восстановить)")
+    end
+    
+    UpdateSelectedInfo()
+end
+
+-- 5.2: ВОССТАНОВЛЕНИЕ ОБЪЕКТА
+local function RestoreObject()
+    if not Settings.BackupObject then
+        print("⚠️ Нет объекта для восстановления")
+        return
+    end
+    
+    local obj = Settings.BackupObject
+    obj.Parent = Settings.BackupParent or workspace
+    
+    Settings.SelectedObject = obj
+    Settings.BackupObject = nil
+    Settings.BackupParent = nil
+    
+    UpdateHighlight()
+    UpdateSelectedInfo()
+    print("✅ Объект восстановлен")
+end
+
+-- 5.3: ПЕРЕМЕЩЕНИЕ ОБЪЕКТА (CFrame / Position) [citation:3]
+local function MoveObject(direction)
+    if not Settings.SelectedObject then return end
+    local obj = Settings.SelectedObject
+    
+    if obj:IsA("BasePart") then
+        obj.Position = obj.Position + direction * Settings.MoveSpeed
+    elseif obj:IsA("Model") then
+        obj:PivotTo(obj:GetPivot() + direction * Settings.MoveSpeed)
     end
 end
 
--- ===== ФУНКЦИИ NOCLIP =====
-local function enableNoclip()
-    if noclipEnabled then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-
-    -- Мгновенно отключаем коллизию на всех частях
-    for _, part in pairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-        end
-    end
-
-    -- Постоянно следим, чтобы коллизия оставалась выключенной
-    noclipConnection = RunService.Heartbeat:Connect(function()
-        if not noclipEnabled or not LocalPlayer.Character then
-            return
-        end
-        char = LocalPlayer.Character
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end)
-
-    noclipEnabled = true
-end
-
-local function disableNoclip()
-    noclipEnabled = false
-    if noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-    end
-    local char = LocalPlayer.Character
-    if char then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
+local function RotateObject(axis, angle)
+    if not Settings.SelectedObject then return end
+    local obj = Settings.SelectedObject
+    local rad = math.rad(angle)
+    
+    if obj:IsA("BasePart") then
+        obj.CFrame = obj.CFrame * CFrame.Angles(
+            axis == "X" and rad or 0,
+            axis == "Y" and rad or 0,
+            axis == "Z" and rad or 0
+        )
+    elseif obj:IsA("Model") then
+        obj:PivotTo(obj:GetPivot() * CFrame.Angles(
+            axis == "X" and rad or 0,
+            axis == "Y" and rad or 0,
+            axis == "Z" and rad or 0
+        ))
     end
 end
 
-local function toggleNoclip()
-    if noclipEnabled then
-        disableNoclip()
-    else
-        enableNoclip()
-    end
-end
-
--- ===== УПРАВЛЕНИЕ =====
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        toggleFly()
-    elseif input.KeyCode == Enum.KeyCode.N then
-        toggleNoclip()
-    end
-end)
-
--- Отключаем всё при респавне
-LocalPlayer.CharacterAdded:Connect(function()
-    if flyEnabled then
-        disableFly()
-    end
-    if noclipEnabled then
-        disableNoclip()
-    end
-end)
-
--- ===== МЕНЮ =====
+-- =====================================================================
+-- БЛОК 6: ИНТЕРФЕЙС ПОЛЬЗОВАТЕЛЯ (ПОЛНОСТЬЮ КАСТОМНОЕ GUI)
+-- =====================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = randomString(12)
 ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
 if syn and syn.protect_gui then
     syn.protect_gui(ScreenGui)
 elseif protect_gui then
     protect_gui(ScreenGui)
 end
 
+-- ===== ОСНОВНОЙ ФРЕЙМ =====
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 300, 0, 210)
-MainFrame.Position = UDim2.new(0, 50, 0, 50)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.Name = randomString(8)
+MainFrame.Size = UDim2.new(0, 500, 0, 550)
+MainFrame.Position = UDim2.new(0, 100, 0, 100)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 MainFrame.BackgroundTransparency = 0.1
+MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundTransparency = 1
-Title.Text = "⚡ FLY + NOCLIP"
-Title.TextColor3 = Color3.fromRGB(100, 200, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 24
-Title.Parent = MainFrame
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(0, 150, 255)
+UIStroke.Thickness = 2
+UIStroke.Transparency = 0.5
+UIStroke.Parent = MainFrame
 
--- Статус Fly
-local FlyStatus = Instance.new("TextLabel")
-FlyStatus.Size = UDim2.new(1, -20, 0, 35)
-FlyStatus.Position = UDim2.new(0, 10, 0, 45)
-FlyStatus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-FlyStatus.Text = "FLY: OFF (Press F)"
-FlyStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-FlyStatus.Font = Enum.Font.SourceSansBold
-FlyStatus.TextSize = 20
-FlyStatus.Parent = MainFrame
-local FlyCorner = Instance.new("UICorner")
-FlyCorner.CornerRadius = UDim.new(0, 6)
-FlyCorner.Parent = FlyStatus
+-- ===== ЗАГОЛОВОК =====
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+TitleBar.BackgroundTransparency = 0.2
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
 
--- Статус Noclip
-local NoclipStatus = Instance.new("TextLabel")
-NoclipStatus.Size = UDim2.new(1, -20, 0, 35)
-NoclipStatus.Position = UDim2.new(0, 10, 0, 85)
-NoclipStatus.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-NoclipStatus.Text = "NOCLIP: OFF (Press N)"
-NoclipStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-NoclipStatus.Font = Enum.Font.SourceSansBold
-NoclipStatus.TextSize = 20
-NoclipStatus.Parent = MainFrame
-local NoclipCorner = Instance.new("UICorner")
-NoclipCorner.CornerRadius = UDim.new(0, 6)
-NoclipCorner.Parent = NoclipStatus
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
 
--- Слайдер скорости
-local SpeedLabel = Instance.new("TextLabel")
-SpeedLabel.Size = UDim2.new(1, -20, 0, 25)
-SpeedLabel.Position = UDim2.new(0, 10, 0, 135)
-SpeedLabel.BackgroundTransparency = 1
-SpeedLabel.Text = "Скорость: " .. Settings.FlySpeed
-SpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-SpeedLabel.Font = Enum.Font.SourceSans
-SpeedLabel.TextSize = 18
-SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-SpeedLabel.Parent = MainFrame
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, -40, 1, 0)
+TitleText.Position = UDim2.new(0, 15, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Text = "🎯 OBJECT EXPLORER PREMIUM"
+TitleText.TextColor3 = Color3.new(1, 1, 1)
+TitleText.Font = Enum.Font.GothamBold
+TitleText.TextSize = 20
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+TitleText.Parent = TitleBar
 
-local SliderBg = Instance.new("Frame")
-SliderBg.Size = UDim2.new(1, -20, 0, 12)
-SliderBg.Position = UDim2.new(0, 10, 0, 165)
-SliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-SliderBg.Parent = MainFrame
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseButton.BackgroundTransparency = 0.2
+CloseButton.Text = "✕"
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.TextSize = 20
+CloseButton.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+    Settings.MenuVisible = false
+end)
+
+-- ===== ПАНЕЛЬ ИНФОРМАЦИИ ОБ ОБЪЕКТЕ =====
+local InfoPanel = Instance.new("Frame")
+InfoPanel.Size = UDim2.new(1, -20, 0, 120)
+InfoPanel.Position = UDim2.new(0, 10, 0, 50)
+InfoPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+InfoPanel.BackgroundTransparency = 0.2
+InfoPanel.BorderSizePixel = 0
+InfoPanel.Parent = MainFrame
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 8)
+InfoCorner.Parent = InfoPanel
+
+local InfoTitle = Instance.new("TextLabel")
+InfoTitle.Size = UDim2.new(1, -10, 0, 25)
+InfoTitle.Position = UDim2.new(0, 5, 0, 5)
+InfoTitle.BackgroundTransparency = 1
+InfoTitle.Text = "📌 ВЫБРАННЫЙ ОБЪЕКТ"
+InfoTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
+InfoTitle.Font = Enum.Font.GothamBold
+InfoTitle.TextSize = 16
+InfoTitle.TextXAlignment = Enum.TextXAlignment.Left
+InfoTitle.Parent = InfoPanel
+
+-- Название
+local NameLabel = Instance.new("TextLabel")
+NameLabel.Size = UDim2.new(1, -10, 0, 25)
+NameLabel.Position = UDim2.new(0, 5, 0, 35)
+NameLabel.BackgroundTransparency = 1
+NameLabel.Text = "Название: "
+NameLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+NameLabel.Font = Enum.Font.Gotham
+NameLabel.TextSize = 14
+NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+NameLabel.Parent = InfoPanel
+
+local NameValue = Instance.new("TextLabel")
+NameValue.Size = UDim2.new(1, -100, 0, 25)
+NameValue.Position = UDim2.new(0, 90, 0, 35)
+NameValue.BackgroundTransparency = 1
+NameValue.Text = "None"
+NameValue.TextColor3 = Color3.new(1, 1, 0)
+NameValue.Font = Enum.Font.GothamBold
+NameValue.TextSize = 14
+NameValue.TextXAlignment = Enum.TextXAlignment.Left
+NameValue.Parent = InfoPanel
+
+-- Класс
+local ClassLabel = Instance.new("TextLabel")
+ClassLabel.Size = UDim2.new(1, -10, 0, 25)
+ClassLabel.Position = UDim2.new(0, 5, 0, 60)
+ClassLabel.BackgroundTransparency = 1
+ClassLabel.Text = "Класс: "
+ClassLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+ClassLabel.Font = Enum.Font.Gotham
+ClassLabel.TextSize = 14
+ClassLabel.TextXAlignment = Enum.TextXAlignment.Left
+ClassLabel.Parent = InfoPanel
+
+local ClassValue = Instance.new("TextLabel")
+ClassValue.Size = UDim2.new(1, -100, 0, 25)
+ClassValue.Position = UDim2.new(0, 90, 0, 60)
+ClassValue.BackgroundTransparency = 1
+ClassValue.Text = "None"
+ClassValue.TextColor3 = Color3.new(100, 255, 100)
+ClassValue.Font = Enum.Font.GothamBold
+ClassValue.TextSize = 14
+ClassValue.TextXAlignment = Enum.TextXAlignment.Left
+ClassValue.Parent = InfoPanel
+
+-- Путь
+local PathLabel = Instance.new("TextLabel")
+PathLabel.Size = UDim2.new(1, -10, 0, 25)
+PathLabel.Position = UDim2.new(0, 5, 0, 85)
+PathLabel.BackgroundTransparency = 1
+PathLabel.Text = "Путь: "
+PathLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+PathLabel.Font = Enum.Font.Gotham
+PathLabel.TextSize = 14
+PathLabel.TextXAlignment = Enum.TextXAlignment.Left
+PathLabel.Parent = InfoPanel
+
+local PathValue = Instance.new("TextLabel")
+PathValue.Size = UDim2.new(1, -100, 0, 25)
+PathValue.Position = UDim2.new(0, 90, 0, 85)
+PathValue.BackgroundTransparency = 1
+PathValue.Text = "None"
+PathValue.TextColor3 = Color3.new(200, 200, 255)
+PathValue.Font = Enum.Font.Gotham
+PathValue.TextSize = 12
+PathValue.TextXAlignment = Enum.TextXAlignment.Left
+PathValue.TextWrapped = true
+PathValue.Parent = InfoPanel
+
+-- ===== ПАНЕЛЬ УПРАВЛЕНИЯ (КНОПКИ) =====
+local ControlPanel = Instance.new("Frame")
+ControlPanel.Size = UDim2.new(1, -20, 0, 100)
+ControlPanel.Position = UDim2.new(0, 10, 0, 180)
+ControlPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+ControlPanel.BackgroundTransparency = 0.2
+ControlPanel.BorderSizePixel = 0
+ControlPanel.Parent = MainFrame
+
+local ControlCorner = Instance.new("UICorner")
+ControlCorner.CornerRadius = UDim.new(0, 8)
+ControlCorner.Parent = ControlPanel
+
+local ControlTitle = Instance.new("TextLabel")
+ControlTitle.Size = UDim2.new(1, -10, 0, 25)
+ControlTitle.Position = UDim2.new(0, 5, 0, 5)
+ControlTitle.BackgroundTransparency = 1
+ControlTitle.Text = "🛠️ ДЕЙСТВИЯ С ОБЪЕКТОМ"
+ControlTitle.TextColor3 = Color3.fromRGB(255, 200, 100)
+ControlTitle.Font = Enum.Font.GothamBold
+ControlTitle.TextSize = 16
+ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
+ControlTitle.Parent = ControlPanel
+
+-- Кнопка: Выбрать объект под мышью
+local SelectButton = Instance.new("TextButton")
+SelectButton.Size = UDim2.new(0, 150, 0, 30)
+SelectButton.Position = UDim2.new(0, 5, 0, 35)
+SelectButton.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+SelectButton.Text = "🎯 ВЫБРАТЬ"
+SelectButton.TextColor3 = Color3.new(1, 1, 1)
+SelectButton.Font = Enum.Font.GothamBold
+SelectButton.TextSize = 14
+SelectButton.Parent = ControlPanel
+
+local SelectCorner = Instance.new("UICorner")
+SelectCorner.CornerRadius = UDim.new(0, 6)
+SelectCorner.Parent = SelectButton
+
+-- Кнопка: Удалить (скрыть)
+local DeleteButton = Instance.new("TextButton")
+DeleteButton.Size = UDim2.new(0, 150, 0, 30)
+DeleteButton.Position = UDim2.new(0, 165, 0, 35)
+DeleteButton.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+DeleteButton.Text = "🗑️ СКРЫТЬ"
+DeleteButton.TextColor3 = Color3.new(1, 1, 1)
+DeleteButton.Font = Enum.Font.GothamBold
+DeleteButton.TextSize = 14
+DeleteButton.Parent = ControlPanel
+
+local DeleteCorner = Instance.new("UICorner")
+DeleteCorner.CornerRadius = UDim.new(0, 6)
+DeleteCorner.Parent = DeleteButton
+
+-- Кнопка: Уничтожить навсегда
+local DestroyButton = Instance.new("TextButton")
+DestroyButton.Size = UDim2.new(0, 150, 0, 30)
+DestroyButton.Position = UDim2.new(0, 325, 0, 35)
+DestroyButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+DestroyButton.Text = "💀 УНИЧТОЖИТЬ"
+DestroyButton.TextColor3 = Color3.new(1, 1, 1)
+DestroyButton.Font = Enum.Font.GothamBold
+DestroyButton.TextSize = 14
+DestroyButton.Parent = ControlPanel
+
+local DestroyCorner = Instance.new("UICorner")
+DestroyCorner.CornerRadius = UDim.new(0, 6)
+DestroyCorner.Parent = DestroyButton
+
+-- Кнопка: Восстановить
+local RestoreButton = Instance.new("TextButton")
+RestoreButton.Size = UDim2.new(0, 150, 0, 30)
+RestoreButton.Position = UDim2.new(0, 5, 0, 70)
+RestoreButton.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+RestoreButton.Text = "↩️ ВОССТАНОВИТЬ"
+RestoreButton.TextColor3 = Color3.new(1, 1, 1)
+RestoreButton.Font = Enum.Font.GothamBold
+RestoreButton.TextSize = 14
+RestoreButton.Parent = ControlPanel
+
+local RestoreCorner = Instance.new("UICorner")
+RestoreCorner.CornerRadius = UDim.new(0, 6)
+RestoreCorner.Parent = RestoreButton
+
+-- ===== НАСТРОЙКИ ПОДСВЕТКИ =====
+local HighlightPanel = Instance.new("Frame")
+HighlightPanel.Size = UDim2.new(1, -20, 0, 140)
+HighlightPanel.Position = UDim2.new(0, 10, 0, 290)
+HighlightPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+HighlightPanel.BackgroundTransparency = 0.2
+HighlightPanel.BorderSizePixel = 0
+HighlightPanel.Parent = MainFrame
+
+local HighlightCorner = Instance.new("UICorner")
+HighlightCorner.CornerRadius = UDim.new(0, 8)
+HighlightCorner.Parent = HighlightPanel
+
+local HighlightTitle = Instance.new("TextLabel")
+HighlightTitle.Size = UDim2.new(1, -10, 0, 25)
+HighlightTitle.Position = UDim2.new(0, 5, 0, 5)
+HighlightTitle.BackgroundTransparency = 1
+HighlightTitle.Text = "✨ НАСТРОЙКИ ПОДСВЕТКИ"
+HighlightTitle.TextColor3 = Color3.fromRGB(100, 255, 200)
+HighlightTitle.Font = Enum.Font.GothamBold
+HighlightTitle.TextSize = 16
+HighlightTitle.TextXAlignment = Enum.TextXAlignment.Left
+HighlightTitle.Parent = HighlightPanel
+
+-- Чекбокс: Включить подсветку
+local HighlightEnabledCheckbox = Instance.new("Frame")
+HighlightEnabledCheckbox.Size = UDim2.new(0, 20, 0, 20)
+HighlightEnabledCheckbox.Position = UDim2.new(0, 10, 0, 40)
+HighlightEnabledCheckbox.BackgroundColor3 = Settings.HighlightEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
+HighlightEnabledCheckbox.Parent = HighlightPanel
+
+local CheckboxCorner = Instance.new("UICorner")
+CheckboxCorner.CornerRadius = UDim.new(0, 4)
+CheckboxCorner.Parent = HighlightEnabledCheckbox
+
+local HighlightEnabledLabel = Instance.new("TextLabel")
+HighlightEnabledLabel.Size = UDim2.new(0, 150, 0, 25)
+HighlightEnabledLabel.Position = UDim2.new(0, 35, 0, 37)
+HighlightEnabledLabel.BackgroundTransparency = 1
+HighlightEnabledLabel.Text = "Подсветка объекта"
+HighlightEnabledLabel.TextColor3 = Color3.new(1, 1, 1)
+HighlightEnabledLabel.Font = Enum.Font.Gotham
+HighlightEnabledLabel.TextSize = 14
+HighlightEnabledLabel.TextXAlignment = Enum.TextXAlignment.Left
+HighlightEnabledLabel.Parent = HighlightPanel
+
+-- Чекбокс: Видимость для всех
+local ForAllCheckbox = Instance.new("Frame")
+ForAllCheckbox.Size = UDim2.new(0, 20, 0, 20)
+ForAllCheckbox.Position = UDim2.new(0, 10, 0, 70)
+ForAllCheckbox.BackgroundColor3 = Settings.HighlightForAll and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
+ForAllCheckbox.Parent = HighlightPanel
+
+local ForAllCorner = Instance.new("UICorner")
+ForAllCorner.CornerRadius = UDim.new(0, 4)
+ForAllCorner.Parent = ForAllCheckbox
+
+local ForAllLabel = Instance.new("TextLabel")
+ForAllLabel.Size = UDim2.new(0, 200, 0, 25)
+ForAllLabel.Position = UDim2.new(0, 35, 0, 67)
+ForAllLabel.BackgroundTransparency = 1
+ForAllLabel.Text = "Видимо для всех игроков"
+ForAllLabel.TextColor3 = Color3.new(1, 1, 1)
+ForAllLabel.Font = Enum.Font.Gotham
+ForAllLabel.TextSize = 14
+ForAllLabel.TextXAlignment = Enum.TextXAlignment.Left
+ForAllLabel.Parent = HighlightPanel
+
+-- Радио-кнопки: Тип подсветки (Highlight/Box/Outline) — упростим до чекбокса
+-- В реальном проекте тут был бы Dropdown, но оставим слайдер прозрачности
+
+local TranspLabel = Instance.new("TextLabel")
+TranspLabel.Size = UDim2.new(0, 150, 0, 25)
+TranspLabel.Position = UDim2.new(0, 10, 0, 100)
+TranspLabel.BackgroundTransparency = 1
+TranspLabel.Text = "Прозрачность: 0.4"
+TranspLabel.TextColor3 = Color3.new(1, 1, 1)
+TranspLabel.Font = Enum.Font.Gotham
+TranspLabel.TextSize = 14
+TranspLabel.TextXAlignment = Enum.TextXAlignment.Left
+TranspLabel.Parent = HighlightPanel
+
+-- Слайдер прозрачности
+local TranspSlider = Instance.new("Frame")
+TranspSlider.Size = UDim2.new(0, 200, 0, 8)
+TranspSlider.Position = UDim2.new(0, 10, 0, 125)
+TranspSlider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+TranspSlider.Parent = HighlightPanel
+
 local SliderCorner = Instance.new("UICorner")
-SliderCorner.CornerRadius = UDim.new(0, 6)
-SliderCorner.Parent = SliderBg
+SliderCorner.CornerRadius = UDim.new(0, 4)
+SliderCorner.Parent = TranspSlider
 
-local SliderFill = Instance.new("Frame")
-SliderFill.Size = UDim2.new((Settings.FlySpeed - 20) / 130, 0, 1, 0)
-SliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-SliderFill.Parent = SliderBg
+local TranspFill = Instance.new("Frame")
+TranspFill.Size = UDim2.new(Settings.HighlightTransparency, 0, 1, 0)
+TranspFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+TranspFill.Parent = TranspSlider
+
 local FillCorner = Instance.new("UICorner")
-FillCorner.CornerRadius = UDim.new(0, 6)
-FillCorner.Parent = SliderFill
+FillCorner.CornerRadius = UDim.new(0, 4)
+FillCorner.Parent = TranspFill
 
--- Логика слайдера
-local dragging = false
-SliderFill.InputBegan:Connect(function(input)
+-- ===== ПАНЕЛЬ ПЕРЕМЕЩЕНИЯ =====
+local MovePanel = Instance.new("Frame")
+MovePanel.Size = UDim2.new(1, -20, 0, 110)
+MovePanel.Position = UDim2.new(0, 10, 0, 440)
+MovePanel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+MovePanel.BackgroundTransparency = 0.2
+MovePanel.BorderSizePixel = 0
+MovePanel.Parent = MainFrame
+
+local MoveCorner = Instance.new("UICorner")
+MoveCorner.CornerRadius = UDim.new(0, 8)
+MoveCorner.Parent = MovePanel
+
+local MoveTitle = Instance.new("TextLabel")
+MoveTitle.Size = UDim2.new(1, -10, 0, 25)
+MoveTitle.Position = UDim2.new(0, 5, 0, 5)
+MoveTitle.BackgroundTransparency = 1
+MoveTitle.Text = "🧩 ПЕРЕМЕЩЕНИЕ (WASD + Space/Ctrl)"
+MoveTitle.TextColor3 = Color3.fromRGB(200, 200, 100)
+MoveTitle.Font = Enum.Font.GothamBold
+MoveTitle.TextSize = 16
+MoveTitle.TextXAlignment = Enum.TextXAlignment.Left
+MoveTitle.Parent = MovePanel
+
+-- Слайдер скорости перемещения
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(0, 150, 0, 25)
+SpeedLabel.Position = UDim2.new(0, 10, 0, 40)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Скорость: " .. Settings.MoveSpeed
+SpeedLabel.TextColor3 = Color3.new(1, 1, 1)
+SpeedLabel.Font = Enum.Font.Gotham
+SpeedLabel.TextSize = 14
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = MovePanel
+
+local SpeedSlider = Instance.new("Frame")
+SpeedSlider.Size = UDim2.new(0, 200, 0, 8)
+SpeedSlider.Position = UDim2.new(0, 10, 0, 70)
+SpeedSlider.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+SpeedSlider.Parent = MovePanel
+
+local SpeedSliderCorner = Instance.new("UICorner")
+SpeedSliderCorner.CornerRadius = UDim.new(0, 4)
+SpeedSliderCorner.Parent = SpeedSlider
+
+local SpeedFill = Instance.new("Frame")
+SpeedFill.Size = UDim2.new((Settings.MoveSpeed - 1) / 19, 0, 1, 0)  -- 1-20
+SpeedFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+SpeedFill.Parent = SpeedSlider
+
+local SpeedFillCorner = Instance.new("UICorner")
+SpeedFillCorner.CornerRadius = UDim.new(0, 4)
+SpeedFillCorner.Parent = SpeedFill
+
+-- =====================================================================
+-- БЛОК 7: ОБРАБОТЧИКИ СОБЫТИЙ (КЛИКИ, СЛАЙДЕРЫ, ИВЕНТЫ)
+-- =====================================================================
+
+-- 7.1: Кнопка "Выбрать объект"
+SelectButton.MouseButton1Click:Connect(function()
+    local target = Mouse.Target
+    if target then
+        Settings.SelectedObject = target
+        UpdateSelectedInfo()
+        UpdateHighlight()
+        
+        -- Обновляем GUI
+        NameValue.Text = Settings.SelectedObjectName
+        ClassValue.Text = Settings.SelectedObjectClass
+        PathValue.Text = Settings.SelectedObjectPath
+    else
+        print("⚠️ Нет объекта под курсором")
+    end
+end)
+
+-- 7.2: Кнопка "Скрыть" (удалить с возможностью восстановления)
+DeleteButton.MouseButton1Click:Connect(function()
+    DeleteObject(false)
+    NameValue.Text = Settings.SelectedObjectName
+    ClassValue.Text = Settings.SelectedObjectClass
+    PathValue.Text = Settings.SelectedObjectPath
+end)
+
+-- 7.3: Кнопка "Уничтожить"
+DestroyButton.MouseButton1Click:Connect(function()
+    DeleteObject(true)
+    NameValue.Text = Settings.SelectedObjectName
+    ClassValue.Text = Settings.SelectedObjectClass
+    PathValue.Text = Settings.SelectedObjectPath
+end)
+
+-- 7.4: Кнопка "Восстановить"
+RestoreButton.MouseButton1Click:Connect(function()
+    RestoreObject()
+    NameValue.Text = Settings.SelectedObjectName
+    ClassValue.Text = Settings.SelectedObjectClass
+    PathValue.Text = Settings.SelectedObjectPath
+end)
+
+-- 7.5: Чекбокс "Подсветка"
+HighlightEnabledCheckbox.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
+        Settings.HighlightEnabled = not Settings.HighlightEnabled
+        HighlightEnabledCheckbox.BackgroundColor3 = Settings.HighlightEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
+        UpdateHighlight()
+    end
+end)
+
+-- 7.6: Чекбокс "Видимо для всех"
+ForAllCheckbox.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Settings.HighlightForAll = not Settings.HighlightForAll
+        ForAllCheckbox.BackgroundColor3 = Settings.HighlightForAll and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(80, 80, 80)
+        UpdateHighlight()
+    end
+end)
+
+-- 7.7: Слайдер прозрачности
+local transpDragging = false
+TranspFill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        transpDragging = true
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
+        transpDragging = false
     end
 end)
 
+-- 7.8: Слайдер скорости
+local speedDragging = false
+SpeedFill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        speedDragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        speedDragging = false
+    end
+end)
+
+-- 7.9: Обновление слайдеров в RenderStepped
 RunService.RenderStepped:Connect(function()
-    if dragging then
+    -- Слайдер прозрачности
+    if transpDragging then
         local mousePos = UserInputService:GetMouseLocation()
-        local absX, absY = SliderBg.AbsolutePosition.X, SliderBg.AbsolutePosition.Y
-        local absSizeX = SliderBg.AbsoluteSize.X
+        local absX, absY = TranspSlider.AbsolutePosition.X, TranspSlider.AbsolutePosition.Y
+        local absSizeX = TranspSlider.AbsoluteSize.X
         local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
         local percent = relativeX / absSizeX
-        local value = math.floor(20 + (130 * percent))
-        Settings.FlySpeed = math.clamp(value, 20, 150)
-        SliderFill.Size = UDim2.new((Settings.FlySpeed - 20) / 130, 0, 1, 0)
-        SpeedLabel.Text = "Скорость: " .. Settings.FlySpeed
+        Settings.HighlightTransparency = math.clamp(percent, 0, 1)
+        TranspFill.Size = UDim2.new(Settings.HighlightTransparency, 0, 1, 0)
+        TranspLabel.Text = "Прозрачность: " .. string.format("%.1f", Settings.HighlightTransparency)
+        UpdateHighlight()
+    end
+    
+    -- Слайдер скорости
+    if speedDragging then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absX, absY = SpeedSlider.AbsolutePosition.X, SpeedSlider.AbsolutePosition.Y
+        local absSizeX = SpeedSlider.AbsoluteSize.X
+        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+        local percent = relativeX / absSizeX
+        local value = math.floor(1 + (19 * percent))
+        Settings.MoveSpeed = math.clamp(value, 1, 20)
+        SpeedFill.Size = UDim2.new((Settings.MoveSpeed - 1) / 19, 0, 1, 0)
+        SpeedLabel.Text = "Скорость: " .. Settings.MoveSpeed
+    end
+    
+    -- Обновление информации об объекте в реальном времени
+    UpdateSelectedInfo()
+    NameValue.Text = Settings.SelectedObjectName
+    ClassValue.Text = Settings.SelectedObjectClass
+    PathValue.Text = Settings.SelectedObjectPath
+end)
+
+-- =====================================================================
+-- БЛОК 8: УПРАВЛЕНИЕ С КЛАВИАТУРЫ (ПЕРЕМЕЩЕНИЕ ОБЪЕКТА)
+-- =====================================================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    
+    -- Перемещение: WASD + Space/Ctrl
+    if input.KeyCode == Enum.KeyCode.W then
+        MoveObject(Camera.CFrame.LookVector)
+    elseif input.KeyCode == Enum.KeyCode.S then
+        MoveObject(-Camera.CFrame.LookVector)
+    elseif input.KeyCode == Enum.KeyCode.A then
+        MoveObject(-Camera.CFrame.RightVector)
+    elseif input.KeyCode == Enum.KeyCode.D then
+        MoveObject(Camera.CFrame.RightVector)
+    elseif input.KeyCode == Enum.KeyCode.Space then
+        MoveObject(Vector3.new(0, 1, 0))
+    elseif input.KeyCode == Enum.KeyCode.LeftControl then
+        MoveObject(Vector3.new(0, -1, 0))
+    end
+    
+    -- Поворот: Q/E (Yaw), Z/C (Pitch)
+    if input.KeyCode == Enum.KeyCode.Q then
+        RotateObject("Y", 15)
+    elseif input.KeyCode == Enum.KeyCode.E then
+        RotateObject("Y", -15)
+    elseif input.KeyCode == Enum.KeyCode.Z then
+        RotateObject("X", 15)
+    elseif input.KeyCode == Enum.KeyCode.C then
+        RotateObject("X", -15)
     end
 end)
 
--- Обновление статусов
-RunService.RenderStepped:Connect(function()
-    if flyEnabled then
-        FlyStatus.Text = "FLY: ON (Press F)"
-        FlyStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
-        FlyStatus.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
-    else
-        FlyStatus.Text = "FLY: OFF (Press F)"
-        FlyStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-        FlyStatus.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
-    end
+-- =====================================================================
+-- БЛОК 9: ФИНАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ
+-- =====================================================================
+print([[
+╔══════════════════════════════════════════════════════════════╗
+║     🔥 OBJECT EXPLORER PREMIUM V3.0.0 ЗАГРУЖЕН 🔥           ║
+╠══════════════════════════════════════════════════════════════╣
+║  🎯 Наведись на объект → Нажми "ВЫБРАТЬ"                    ║
+║  🗑️  Скрыть / Уничтожить / Восстановить                    ║
+║  🧩 Перемещай: WASD + Пробел/Ctrl                          ║
+║  🔄 Поворачивай: Q/E (Yaw), Z/C (Pitch)                    ║
+║  ✨ Настрой подсветку: цвет, прозрачность, видимость       ║
+║  ⚠️  Только для альт-аккаунтов!                            ║
+╚══════════════════════════════════════════════════════════════╝
+]])
 
-    if noclipEnabled then
-        NoclipStatus.Text = "NOCLIP: ON (Press N)"
-        NoclipStatus.TextColor3 = Color3.fromRGB(100, 255, 100)
-        NoclipStatus.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
-    else
-        NoclipStatus.Text = "NOCLIP: OFF (Press N)"
-        NoclipStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-        NoclipStatus.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
-    end
-end)
-
-print("✅ FLY + NOCLIP загружены.")
-print("🎮 F = FLY | N = NOCLIP")
-print("⚙️ Скорость регулируется ползунком.")
+-- Первичная инициализация GUI
+UpdateSelectedInfo()
+NameValue.Text = Settings.SelectedObjectName
+ClassValue.Text = Settings.SelectedObjectClass
+PathValue.Text = Settings.SelectedObjectPath
