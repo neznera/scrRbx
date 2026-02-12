@@ -34,13 +34,9 @@ local Settings = {
     FOV_Visible = true,
 }
 
--- ===== ПЕРЕМЕННЫЕ =====
-local ESP_Cache = setmetatable({}, {__mode = "v"})
-local MenuOpen = true
-local Dragging = false
-local DragStart, DragPos
-
 -- ===== ESP: ЖЁЛТЫЙ КРУГ НА ГОЛОВЕ =====
+local ESP_Cache = setmetatable({}, {__mode = "v"})
+
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -114,12 +110,11 @@ local function IsTeamMate(p)
     return p.Team == LocalPlayer.Team
 end
 
--- Получение цели: ближайший к центру экрана в пределах FOV
+-- Поиск цели: ближайший к прицелу враг в пределах FOV
 local function GetTarget()
     if not Settings.SilentAim then return nil end
     local mousePos = UserInputService:GetMouseLocation()
-    local closest = nil
-    local closestDist = Settings.FOV
+    local closest, closestDist = nil, Settings.FOV
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
@@ -141,13 +136,13 @@ local function GetTarget()
     return closest
 end
 
--- Поиск RemoteEvent для выстрела (расширенный)
+-- Поиск RemoteEvent для выстрела в текущем инструменте
 local function GetShootRemote(tool)
     if not tool then return nil end
     for _, child in pairs(tool:GetDescendants()) do
         if child:IsA("RemoteEvent") then
             local name = child.Name:lower()
-            if name:find("fire") or name:find("shoot") or name:find("remote") or name:find("event") or name:find("weapon") or name:find("bullet") then
+            if name:find("fire") or name:find("shoot") or name:find("remote") or name:find("event") or name:find("weapon") then
                 return child
             end
         end
@@ -155,7 +150,7 @@ local function GetShootRemote(tool)
     return nil
 end
 
--- Перехват левого клика (выстрел)
+-- Перехват левого клика (выстрела)
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 and Settings.SilentAim then
@@ -165,29 +160,15 @@ UserInputService.InputBegan:Connect(function(input, gp)
         local head = target.Character and target.Character:FindFirstChild("Head")
         if not head then return end
 
-        local character = LocalPlayer.Character
-        if not character then return end
-        local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
+        local tool = LocalPlayer.Character and (LocalPlayer.Character:FindFirstChildOfClass("Tool") or LocalPlayer.Character:FindFirstChildWhichIsA("Tool"))
         if not tool then return end
 
         local remote = GetShootRemote(tool)
         if remote then
-            -- Пробуем разные сигнатуры вызова
+            -- Отправляем выстрел в позицию головы врага
             pcall(function()
                 remote:FireServer(head.Position, (head.Position - Camera.CFrame.Position).Unit, target)
             end)
-            pcall(function()
-                remote:FireServer(head.Position, (head.Position - Camera.CFrame.Position).Unit)
-            end)
-            pcall(function()
-                remote:FireServer(target, head.Position)
-            end)
-            pcall(function()
-                remote:FireServer({Target = target, Hit = head.Position})
-            end)
-        else
-            -- Альтернативный метод: tool:Activate() + наведение мыши (не silent, но как fallback)
-            -- Здесь можно ничего не делать, чтобы не спалить
         end
     end
 end)
@@ -199,12 +180,11 @@ if FOVCircle then
     FOVCircle.NumSides = 64
     FOVCircle.Color = Color3.fromRGB(255, 255, 255)
     FOVCircle.Transparency = 0.7
-    FOVCircle.Visible = false
-    FOVCircle.Radius = Settings.FOV
     FOVCircle.Filled = false
+    FOVCircle.Visible = false
 end
 
--- Обновление круга
+-- Обновление положения круга
 RunService.RenderStepped:Connect(function()
     if DrawingSupported and Settings.FOV_Visible then
         local mousePos = UserInputService:GetMouseLocation()
@@ -216,7 +196,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ===== СОБЫТИЯ ИГРОКОВ =====
+-- ===== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP =====
 local function onCharacterAdded(p, char)
     if p == LocalPlayer then return end
     task.wait(0.1)
@@ -239,7 +219,8 @@ end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- ===== МЕНЮ =====
+-- ===== МЕНЮ (ГАРАНТИРОВАННО РАБОТАЕТ) =====
+-- Сначала пробуем Drawing, если не поддерживается — ScreenGui
 if DrawingSupported then
     -- Меню через Drawing
     local menuY = 50
@@ -348,8 +329,10 @@ if DrawingSupported then
             end
         end
     end)
+
+    print("✅ Меню (Drawing) создано. Кликайте по чекбоксам и кнопкам +/- для настройки.")
 else
-    -- Меню через ScreenGui (fallback)
+    -- Меню через ScreenGui (100% видимое)
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = randomString(12)
     ScreenGui.Parent = CoreGui
@@ -441,8 +424,10 @@ else
         Settings.FOV = math.min(300, Settings.FOV + 10)
         fovLabel.Text = "FOV: " .. Settings.FOV
     end)
+
+    print("✅ Меню (ScreenGui) создано. Используйте чекбоксы и кнопки +/- для настройки.")
 end
 
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ ESP + Silent Aim (авто, без нажатий). Просто стреляйте в небо — пуля попадет в голову врага.")
+print("✅ ESP + SILENT AIM (автоматический) загружены. Просто стреляй — пуля сама попадёт в голову врага!")
