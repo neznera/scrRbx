@@ -12,6 +12,7 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local DrawingSupported = pcall(Drawing.new, "Circle")
 
 -- ===== СЛУЧАЙНЫЕ ИМЕНА =====
 local function randomString(len)
@@ -24,22 +25,81 @@ end
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
+    -- ESP
     ESP_Enabled = true,
+    -- Aimbot
     Aimbot_Enabled = true,
     TeamCheck = true,
-    VisibleCheck = true,   -- стрелять только если видим
+    VisibleCheck = false,      -- wallbang by default
+    Wallbang = true,
+    Smoothness = 1,            -- 1 = instant
+    FOV = 120,
+    -- Rapid Fire
+    RapidFire = true,
+    RapidFireDelay = 0.015,
     AutoFire = true,
+    -- No Recoil
+    NoRecoil = true,
+    -- Fast Bullets
+    FastBullets_Enabled = true,
+    FastBullets_Multiplier = 8,
+    -- Fast Walk
     FastWalk_Enabled = true,
     WalkSpeed = 32,
-    FOV = 120,
+}
+
+-- ===== ПРЕСЕТЫ РЕЖИМОВ =====
+local Presets = {
+    Rage = {
+        Aimbot_Enabled = true,
+        Smoothness = 1,
+        VisibleCheck = false,
+        Wallbang = true,
+        NoRecoil = true,
+        RapidFire = true,
+        RapidFireDelay = 0.02,
+        AutoFire = true,
+        FastBullets_Enabled = true,
+        FastBullets_Multiplier = 5,
+        FastWalk_Enabled = true,
+        WalkSpeed = 32,
+    },
+    Legit = {
+        Aimbot_Enabled = true,
+        Smoothness = 15,
+        VisibleCheck = true,
+        Wallbang = false,
+        NoRecoil = false,
+        RapidFire = false,
+        AutoFire = false,
+        FastBullets_Enabled = false,
+        FastWalk_Enabled = true,
+        WalkSpeed = 22,
+    },
+    HVH = {
+        Aimbot_Enabled = true,
+        Smoothness = 1,
+        VisibleCheck = false,
+        Wallbang = true,
+        NoRecoil = true,
+        RapidFire = true,
+        RapidFireDelay = 0.015,
+        AutoFire = true,
+        FastBullets_Enabled = true,
+        FastBullets_Multiplier = 8,
+        FastWalk_Enabled = true,
+        WalkSpeed = 40,
+    },
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
 local IsAiming = false
 local CurrentTarget = nil
-local Dragging = false
-local DragStart, DragPos
+local LastShotTime = 0
+local LastRecoilTime = 0
+local LastFastBulletTime = 0
+local CurrentMode = "HVH"
 
 -- ===== FAST WALK =====
 local function UpdateWalkSpeed()
@@ -51,14 +111,74 @@ local function UpdateWalkSpeed()
     end
 end
 
--- отслеживаем персонажа игрока
 LocalPlayer.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid")
     UpdateWalkSpeed()
 end)
+if LocalPlayer.Character then UpdateWalkSpeed() end
 
-if LocalPlayer.Character then
-    UpdateWalkSpeed()
+-- ===== NO RECOIL =====
+local function ApplyNoRecoil()
+    if not Settings.NoRecoil then return end
+    local now = tick()
+    if now - LastRecoilTime < 0.1 then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool") or char:FindFirstChildWhichIsA("Tool")
+    if tool then
+        local recoilProps = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin", "Shake", "Sway"}
+        for _, prop in ipairs(recoilProps) do
+            pcall(function()
+                if tool:FindFirstChild(prop) then
+                    tool[prop].Value = 0
+                end
+                if tool[prop] ~= nil then
+                    tool[prop] = 0
+                end
+            end)
+        end
+    end
+    LastRecoilTime = now
+end
+
+-- ===== FAST BULLETS =====
+local function ApplyFastBullets()
+    if not Settings.FastBullets_Enabled then return end
+    local now = tick()
+    if now - LastFastBulletTime < 0.2 then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local tool = char:FindFirstChildOfClass("Tool") or char:FindFirstChildWhichIsA("Tool")
+    if not tool then return end
+
+    local velocityProps = {
+        "BulletVelocity", "Velocity", "ProjectileVelocity", "Speed",
+        "BulletSpeed", "LaunchSpeed", "ShotVelocity", "MaxSpeed", "ProjectileSpeed"
+    }
+
+    for _, propName in ipairs(velocityProps) do
+        pcall(function()
+            if tool[propName] ~= nil then
+                if type(tool[propName]) == "number" then
+                    tool[propName] = tool[propName] * Settings.FastBullets_Multiplier
+                elseif tool[propName]:IsA("NumberValue") then
+                    tool[propName].Value = tool[propName].Value * Settings.FastBullets_Multiplier
+                end
+            end
+            for _, child in pairs(tool:GetDescendants()) do
+                if child:IsA("Part") or child:IsA("MeshPart") then
+                    if child[propName] ~= nil then
+                        if type(child[propName]) == "number" then
+                            child[propName] = child[propName] * Settings.FastBullets_Multiplier
+                        elseif child[propName]:IsA("NumberValue") then
+                            child[propName].Value = child[propName].Value * Settings.FastBullets_Multiplier
+                        end
+                    end
+                end
+            end
+        end)
+    end
+    LastFastBulletTime = now
 end
 
 -- ===== ESP =====
@@ -130,7 +250,6 @@ local function RefreshAllESP()
     end
 end
 
--- обновление цвета цели (красный) и остальных (жёлтый)
 local function UpdateTargetESP()
     for p, bill in pairs(ESP_Cache) do
         if bill and bill:FindFirstChildOfClass("ImageLabel") then
@@ -146,6 +265,29 @@ local function UpdateTargetESP()
     end
 end
 
+-- ===== СОБЫТИЯ ИГРОКОВ =====
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    task.wait(0.1)
+    CreateESP(p, false)
+end
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then CreateESP(p, false) end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
 -- ===== AIMBOT =====
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
@@ -154,6 +296,7 @@ local function IsTeamMate(p)
 end
 
 local function IsVisible(character)
+    if Settings.Wallbang then return true end
     if not Settings.VisibleCheck then return true end
     local head = character:FindFirstChild("Head")
     if not head then return false end
@@ -189,16 +332,19 @@ local function GetClosestToMouse()
     return closest
 end
 
-local function MoveMouseInstant(targetX, targetY)
+local function MoveMouse(targetX, targetY)
     local current = UserInputService:GetMouseLocation()
     local delta = Vector2.new(targetX - current.X, targetY - current.Y)
     if delta.Magnitude < 0.5 then return end
+    local smooth = math.max(1, Settings.Smoothness)
+    local moveX = delta.X / smooth
+    local moveY = delta.Y / smooth
     if mousemoverel then
-        mousemoverel(delta.X, delta.Y)
+        mousemoverel(moveX, moveY)
     elseif syn and syn.input then
-        syn.input.MouseMove(delta.X, delta.Y)
+        syn.input.MouseMove(moveX, moveY)
     elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(delta.X, delta.Y, false)
+        VirtualInputManager:SendMouseMoveEvent(moveX, moveY, false)
     end
 end
 
@@ -230,8 +376,11 @@ end)
 
 -- главный цикл
 RunService.RenderStepped:Connect(function()
-    -- быстрая ходьба (применяется, если персонаж зареспавнился)
     UpdateWalkSpeed()
+    ApplyNoRecoil()
+    ApplyFastBullets()
+
+    local now = tick()
 
     if Settings.Aimbot_Enabled and IsAiming then
         CurrentTarget = GetClosestToMouse()
@@ -239,9 +388,12 @@ RunService.RenderStepped:Connect(function()
             local head = CurrentTarget.Character.Head
             local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
-                MoveMouseInstant(vec.X, vec.Y)
-                if Settings.AutoFire then
-                    ClickMouse()
+                MoveMouse(vec.X, vec.Y)
+                if Settings.AutoFire or Settings.RapidFire then
+                    if now - LastShotTime >= Settings.RapidFireDelay then
+                        ClickMouse()
+                        LastShotTime = now
+                    end
                 end
             end
         end
@@ -251,29 +403,6 @@ RunService.RenderStepped:Connect(function()
 
     UpdateTargetESP()
 end)
-
--- ===== СОБЫТИЯ ИГРОКОВ =====
-local function onCharacterAdded(p, char)
-    if p == LocalPlayer then return end
-    task.wait(0.1)
-    CreateESP(p, false)
-end
-
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then CreateESP(p, false) end
-        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-    end
-end
-
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-end)
-
-Players.PlayerRemoving:Connect(RemoveESP)
 
 -- ===== МЕНЮ =====
 local ScreenGui = Instance.new("ScreenGui")
@@ -286,7 +415,7 @@ elseif protect_gui then
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 260, 0, 340)
+MainFrame.Size = UDim2.new(0, 280, 0, 520)
 MainFrame.Position = UDim2.new(0, 50, 0, 50)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.2
@@ -312,7 +441,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1,-40,1,0)
 Title.Position = UDim2.new(0,10,0,0)
 Title.BackgroundTransparency = 1
-Title.Text = "ESP + Aimbot + FastWalk"
+Title.Text = "HVH CHEAT"
 Title.TextColor3 = Color3.new(1,1,1)
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.SourceSansBold
@@ -329,7 +458,6 @@ CloseBtn.TextScaled = true
 CloseBtn.Font = Enum.Font.SourceSansBold
 CloseBtn.Parent = TopBar
 CloseBtn.MouseButton1Click:Connect(function()
-    -- при закрытии меню возвращаем нормальную скорость
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         LocalPlayer.Character.Humanoid.WalkSpeed = 16
     end
@@ -338,6 +466,95 @@ end)
 
 local yPos = 40
 
+-- ===== ВЫБОР РЕЖИМА =====
+local ModeLabel = Instance.new("TextLabel")
+ModeLabel.Size = UDim2.new(0, 60, 0, 25)
+ModeLabel.Position = UDim2.new(0,10,0,yPos)
+ModeLabel.BackgroundTransparency = 1
+ModeLabel.Text = "Mode:"
+ModeLabel.TextColor3 = Color3.new(1,1,1)
+ModeLabel.Font = Enum.Font.SourceSans
+ModeLabel.TextSize = 16
+ModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ModeLabel.Parent = MainFrame
+
+local ModeDropdown = Instance.new("TextButton")
+ModeDropdown.Size = UDim2.new(0, 80, 0, 25)
+ModeDropdown.Position = UDim2.new(0, 70, 0, yPos)
+ModeDropdown.BackgroundColor3 = Color3.fromRGB(60,60,60)
+ModeDropdown.Text = CurrentMode
+ModeDropdown.TextColor3 = Color3.new(1,1,1)
+ModeDropdown.Font = Enum.Font.SourceSans
+ModeDropdown.TextSize = 16
+ModeDropdown.Parent = MainFrame
+
+local ModeFrame = Instance.new("Frame")
+ModeFrame.Size = UDim2.new(0, 80, 0, 75)
+ModeFrame.Position = UDim2.new(0, 70, 0, yPos+30)
+ModeFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+ModeFrame.BackgroundTransparency = 0.1
+ModeFrame.Visible = false
+ModeFrame.Parent = MainFrame
+
+local function SetMode(mode)
+    CurrentMode = mode
+    ModeDropdown.Text = mode
+    for k, v in pairs(Presets[mode]) do
+        Settings[k] = v
+    end
+    RefreshAllESP()
+    UpdateWalkSpeed()
+end
+
+local RageBtn = Instance.new("TextButton")
+RageBtn.Size = UDim2.new(1,0,0,25)
+RageBtn.Position = UDim2.new(0,0,0,0)
+RageBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+RageBtn.Text = "Rage"
+RageBtn.TextColor3 = Color3.new(1,1,1)
+RageBtn.Font = Enum.Font.SourceSans
+RageBtn.TextSize = 16
+RageBtn.Parent = ModeFrame
+RageBtn.MouseButton1Click:Connect(function()
+    SetMode("Rage")
+    ModeFrame.Visible = false
+end)
+
+local LegitBtn = Instance.new("TextButton")
+LegitBtn.Size = UDim2.new(1,0,0,25)
+LegitBtn.Position = UDim2.new(0,0,0,25)
+LegitBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+LegitBtn.Text = "Legit"
+LegitBtn.TextColor3 = Color3.new(1,1,1)
+LegitBtn.Font = Enum.Font.SourceSans
+LegitBtn.TextSize = 16
+LegitBtn.Parent = ModeFrame
+LegitBtn.MouseButton1Click:Connect(function()
+    SetMode("Legit")
+    ModeFrame.Visible = false
+end)
+
+local HVHBtn = Instance.new("TextButton")
+HVHBtn.Size = UDim2.new(1,0,0,25)
+HVHBtn.Position = UDim2.new(0,0,0,50)
+HVHBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+HVHBtn.Text = "HVH"
+HVHBtn.TextColor3 = Color3.new(1,1,1)
+HVHBtn.Font = Enum.Font.SourceSans
+HVHBtn.TextSize = 16
+HVHBtn.Parent = ModeFrame
+HVHBtn.MouseButton1Click:Connect(function()
+    SetMode("HVH")
+    ModeFrame.Visible = false
+end)
+
+ModeDropdown.MouseButton1Click:Connect(function()
+    ModeFrame.Visible = not ModeFrame.Visible
+end)
+
+yPos = yPos + 35
+
+-- ===== ЧЕКБОКСЫ =====
 local function CreateCheckbox(text, getter, setter, yOff)
     local bg = Instance.new("Frame")
     bg.Size = UDim2.new(1,-20,0,25)
@@ -389,138 +606,97 @@ CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(
 yPos = yPos + 30
 CreateCheckbox("Visible Check", function() return Settings.VisibleCheck end, function(v) Settings.VisibleCheck = v end, 90)
 yPos = yPos + 30
-CreateCheckbox("Auto Fire", function() return Settings.AutoFire end, function(v) Settings.AutoFire = v end, 120)
+CreateCheckbox("Wallbang", function() return Settings.Wallbang end, function(v) Settings.Wallbang = v end, 120)
 yPos = yPos + 30
-CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 150)
+CreateCheckbox("No Recoil", function() return Settings.NoRecoil end, function(v) Settings.NoRecoil = v end, 150)
+yPos = yPos + 30
+CreateCheckbox("Rapid Fire", function() return Settings.RapidFire end, function(v) Settings.RapidFire = v end, 180)
+yPos = yPos + 30
+CreateCheckbox("Auto Fire", function() return Settings.AutoFire end, function(v) Settings.AutoFire = v end, 210)
+yPos = yPos + 30
+CreateCheckbox("Fast Bullets", function() return Settings.FastBullets_Enabled end, function(v) Settings.FastBullets_Enabled = v end, 240)
+yPos = yPos + 30
+CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 270)
 yPos = yPos + 30
 
--- FOV слайдер
-local fovFrame = Instance.new("Frame")
-fovFrame.Size = UDim2.new(1,-20,0,40)
-fovFrame.Position = UDim2.new(0,10,0,yPos)
-fovFrame.BackgroundTransparency = 1
-fovFrame.Parent = MainFrame
+-- ===== СЛАЙДЕРЫ =====
+local function CreateSlider(parent, text, yOff, getter, setter, min, max, format, mult)
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1,-20,0,40)
+    bg.Position = UDim2.new(0,10,0,yPos + yOff)
+    bg.BackgroundTransparency = 1
+    bg.Parent = parent
 
-local fovLabel = Instance.new("TextLabel")
-fovLabel.Size = UDim2.new(1,0,0,20)
-fovLabel.BackgroundTransparency = 1
-fovLabel.Text = "FOV: " .. Settings.FOV
-fovLabel.TextColor3 = Color3.new(1,1,1)
-fovLabel.Font = Enum.Font.SourceSans
-fovLabel.TextSize = 16
-fovLabel.Parent = fovFrame
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,0,0,20)
+    label.BackgroundTransparency = 1
+    label.Text = text .. ": " .. string.format(format, getter())
+    label.TextColor3 = Color3.new(1,1,1)
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 16
+    label.Parent = bg
 
-local sliderBg = Instance.new("Frame")
-sliderBg.Size = UDim2.new(1,0,0,10)
-sliderBg.Position = UDim2.new(0,0,0,25)
-sliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
-sliderBg.Parent = fovFrame
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1,0,0,10)
+    sliderBg.Position = UDim2.new(0,0,0,25)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    sliderBg.Parent = bg
 
-local sliderCorner = Instance.new("UICorner")
-sliderCorner.CornerRadius = UDim.new(0,4)
-sliderCorner.Parent = sliderBg
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(0,4)
+    sliderCorner.Parent = sliderBg
 
-local fill = Instance.new("Frame")
-fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
-fill.BackgroundColor3 = Color3.fromRGB(0,150,255)
-fill.Parent = sliderBg
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((getter() - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0,150,255)
+    fill.Parent = sliderBg
 
-local fillCorner = Instance.new("UICorner")
-fillCorner.CornerRadius = UDim.new(0,4)
-fillCorner.Parent = fill
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0,4)
+    fillCorner.Parent = fill
 
-local fovDragging = false
-fill.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        fovDragging = true
-    end
-end)
+    local dragging = false
+    fill.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
+    end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        fovDragging = false
-    end
-end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
 
-RunService.RenderStepped:Connect(function()
-    if fovDragging then
-        local mousePos = UserInputService:GetMouseLocation()
-        local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
-        local absSizeX = sliderBg.AbsoluteSize.X
-        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
-        local percent = relativeX / absSizeX
-        local value = math.floor(30 + (270 * percent))
-        Settings.FOV = math.clamp(value, 30, 300)
-        fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
-        fovLabel.Text = "FOV: " .. Settings.FOV
-    end
-end)
+    RunService.RenderStepped:Connect(function()
+        if dragging then
+            local mousePos = UserInputService:GetMouseLocation()
+            local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
+            local absSizeX = sliderBg.AbsoluteSize.X
+            local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+            local percent = relativeX / absSizeX
+            local value = min + (max - min) * percent
+            if mult then value = math.floor(value) end
+            setter(value)
+            fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
+            label.Text = text .. ": " .. string.format(format, value)
+        end
+    end)
+    return 50
+end
 
+CreateSlider(MainFrame, "Smoothness", 0, function() return Settings.Smoothness end, function(v) Settings.Smoothness = v end, 1, 30, "%.0f", true)
+yPos = yPos + 50
+CreateSlider(MainFrame, "FOV", 0, function() return Settings.FOV end, function(v) Settings.FOV = v end, 30, 300, "%.0f", true)
+yPos = yPos + 50
+CreateSlider(MainFrame, "Rapid Fire Delay", 0, function() return Settings.RapidFireDelay end, function(v) Settings.RapidFireDelay = v end, 0.01, 0.2, "%.2fs", false)
+yPos = yPos + 50
+CreateSlider(MainFrame, "Bullet Speed", 0, function() return Settings.FastBullets_Multiplier end, function(v) Settings.FastBullets_Multiplier = v end, 2, 20, "%.0fx", true)
+yPos = yPos + 50
+CreateSlider(MainFrame, "WalkSpeed", 0, function() return Settings.WalkSpeed end, function(v) Settings.WalkSpeed = v; UpdateWalkSpeed() end, 16, 100, "%.0f", true)
 yPos = yPos + 50
 
--- WalkSpeed слайдер
-local wsFrame = Instance.new("Frame")
-wsFrame.Size = UDim2.new(1,-20,0,40)
-wsFrame.Position = UDim2.new(0,10,0,yPos)
-wsFrame.BackgroundTransparency = 1
-wsFrame.Parent = MainFrame
-
-local wsLabel = Instance.new("TextLabel")
-wsLabel.Size = UDim2.new(1,0,0,20)
-wsLabel.BackgroundTransparency = 1
-wsLabel.Text = "WalkSpeed: " .. Settings.WalkSpeed
-wsLabel.TextColor3 = Color3.new(1,1,1)
-wsLabel.Font = Enum.Font.SourceSans
-wsLabel.TextSize = 16
-wsLabel.Parent = wsFrame
-
-local wsSliderBg = Instance.new("Frame")
-wsSliderBg.Size = UDim2.new(1,0,0,10)
-wsSliderBg.Position = UDim2.new(0,0,0,25)
-wsSliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
-wsSliderBg.Parent = wsFrame
-
-local wsSliderCorner = Instance.new("UICorner")
-wsSliderCorner.CornerRadius = UDim.new(0,4)
-wsSliderCorner.Parent = wsSliderBg
-
-local wsFill = Instance.new("Frame")
-wsFill.Size = UDim2.new((Settings.WalkSpeed - 16) / 84, 0, 1, 0) -- от 16 до 100
-wsFill.BackgroundColor3 = Color3.fromRGB(0,150,255)
-wsFill.Parent = wsSliderBg
-
-local wsFillCorner = Instance.new("UICorner")
-wsFillCorner.CornerRadius = UDim.new(0,4)
-wsFillCorner.Parent = wsFill
-
-local wsDragging = false
-wsFill.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        wsDragging = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        wsDragging = false
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    if wsDragging then
-        local mousePos = UserInputService:GetMouseLocation()
-        local absX, absY = wsSliderBg.AbsolutePosition.X, wsSliderBg.AbsolutePosition.Y
-        local absSizeX = wsSliderBg.AbsoluteSize.X
-        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
-        local percent = relativeX / absSizeX
-        local value = math.floor(16 + (84 * percent)) -- 16-100
-        Settings.WalkSpeed = math.clamp(value, 16, 100)
-        wsFill.Size = UDim2.new((Settings.WalkSpeed - 16) / 84, 0, 1, 0)
-        wsLabel.Text = "WalkSpeed: " .. Settings.WalkSpeed
-        UpdateWalkSpeed()
-    end
-end)
-
 -- ===== ЗАПУСК =====
+SetMode("HVH")
 RefreshAllESP()
-print("✅ ESP + Instant Aimbot + FastWalk. Hold RMB to aim, auto fire if enabled. Target ESP turns red.")
+print("✅ HVH Cheat loaded. Hold RMB to aim. Mode: HVH")
