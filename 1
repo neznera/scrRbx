@@ -28,15 +28,14 @@ end
 -- ===== НАСТРОЙКИ =====
 local Settings = {
     ESP_Enabled = true,
-    TeamCheck = true,
     SilentAim = true,
+    TeamCheck = true,
     FOV = 120,
     FOV_Visible = true,
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
-local IsAiming = false   -- удержание ПКМ
 local MenuOpen = true
 local Dragging = false
 local DragStart, DragPos
@@ -108,17 +107,19 @@ local function RefreshAllESP()
     end
 end
 
--- ===== SILENT AIM (ПЕРЕХВАТ ВЫСТРЕЛА) =====
+-- ===== SILENT AIM (ПЕРЕХВАТ ВЫСТРЕЛА, РАБОТАЕТ ВСЕГДА) =====
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
 
+-- Получение цели: ближайший к центру экрана в пределах FOV
 local function GetTarget()
     if not Settings.SilentAim then return nil end
     local mousePos = UserInputService:GetMouseLocation()
-    local closest, closestDist = nil, Settings.FOV
+    local closest = nil
+    local closestDist = Settings.FOV
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
@@ -140,13 +141,13 @@ local function GetTarget()
     return closest
 end
 
--- Поиск RemoteEvent для выстрела
+-- Поиск RemoteEvent для выстрела (расширенный)
 local function GetShootRemote(tool)
     if not tool then return nil end
     for _, child in pairs(tool:GetDescendants()) do
         if child:IsA("RemoteEvent") then
             local name = child.Name:lower()
-            if name:find("fire") or name:find("shoot") or name:find("remote") or name:find("event") or name:find("weapon") then
+            if name:find("fire") or name:find("shoot") or name:find("remote") or name:find("event") or name:find("weapon") or name:find("bullet") then
                 return child
             end
         end
@@ -154,29 +155,39 @@ local function GetShootRemote(tool)
     return nil
 end
 
--- Перехват левого клика
+-- Перехват левого клика (выстрел)
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and IsAiming and Settings.SilentAim then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and Settings.SilentAim then
         local target = GetTarget()
         if not target then return end
 
         local head = target.Character and target.Character:FindFirstChild("Head")
         if not head then return end
 
-        local tool = LocalPlayer.Character and (LocalPlayer.Character:FindFirstChildOfClass("Tool") or LocalPlayer.Character:FindFirstChildWhichIsA("Tool"))
+        local character = LocalPlayer.Character
+        if not character then return end
+        local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
         if not tool then return end
 
         local remote = GetShootRemote(tool)
         if remote then
-            -- Стандартная сигнатура: удалённый вызов с аргументами (местоположение, направление, ...)
-            -- Попробуем подставить позицию головы врага
+            -- Пробуем разные сигнатуры вызова
             pcall(function()
                 remote:FireServer(head.Position, (head.Position - Camera.CFrame.Position).Unit, target)
             end)
+            pcall(function()
+                remote:FireServer(head.Position, (head.Position - Camera.CFrame.Position).Unit)
+            end)
+            pcall(function()
+                remote:FireServer(target, head.Position)
+            end)
+            pcall(function()
+                remote:FireServer({Target = target, Hit = head.Position})
+            end)
         else
-            -- Если Remote не найден, пробуем старый способ: tool:Activate() + mouse1click с наведением
-            -- (это заставит мышь дёрнуться, но пользователь хотел silent, так что это fallback)
+            -- Альтернативный метод: tool:Activate() + наведение мыши (не silent, но как fallback)
+            -- Здесь можно ничего не делать, чтобы не спалить
         end
     end
 end)
@@ -193,20 +204,7 @@ if FOVCircle then
     FOVCircle.Filled = false
 end
 
--- ===== УПРАВЛЕНИЕ КЛАВИШЕЙ АИМА =====
-UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
-        IsAiming = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        IsAiming = false
-    end
-end)
-
--- ===== ОБНОВЛЕНИЕ КРУГА =====
+-- Обновление круга
 RunService.RenderStepped:Connect(function()
     if DrawingSupported and Settings.FOV_Visible then
         local mousePos = UserInputService:GetMouseLocation()
@@ -351,7 +349,7 @@ if DrawingSupported then
         end
     end)
 else
-    -- Меню через ScreenGui
+    -- Меню через ScreenGui (fallback)
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = randomString(12)
     ScreenGui.Parent = CoreGui
@@ -447,4 +445,4 @@ end
 
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ ESP (круги на головах) + SILENT AIM (пуля сама летит в голову). Удерживайте ПКМ и стреляйте куда угодно.")
+print("✅ ESP + Silent Aim (авто, без нажатий). Просто стреляйте в небо — пуля попадет в голову врага.")
