@@ -60,25 +60,11 @@ local Settings = {
 
     -- Aimbot
     Aimbot_Enabled = true,
-    Aimbot_Key = Enum.UserInputType.MouseButton2,
-    Aimbot_TargetMode = "3D",
-    Aimbot_FOV = 120,
+    Aimbot_Key = Enum.UserInputType.MouseButton2,  -- правая кнопка
     Aimbot_TeamCheck = true,
-    Aimbot_Wallbang = false,
-    Aimbot_NoRecoil = true,
-    Aimbot_RapidFire = true,
-    Aimbot_RapidFireDelay = 0.06,
-    Aimbot_AutoFire = true,
+    Aimbot_AutoFire = false,  -- автоогонь (можно включить в меню)
+    Aimbot_RapidFire = false, -- для чистоты отключаем
     Aimbot_SilentAim = false,
-
-    -- Fast Bullets
-    FastBullets_Enabled = true,
-    FastBullets_Multiplier = 5,
-
-    -- FLY (undetected)
-    Fly_Enabled = false,
-    Fly_Key = Enum.KeyCode.F,              -- клавиша включения/выключения
-    Fly_Speed = 50,
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
@@ -86,85 +72,9 @@ local ESP_Cache = setmetatable({}, {__mode = "v"})
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
-local LastTargetUpdate = 0
-local TARGET_UPDATE_RATE = 0.15
 local MenuOpen = true
 local Dragging = false
 local DragStart, DragPos
-local LastRecoilReset = 0
-local LastFastBulletApply = 0
-
--- ========== ПЕРЕМЕННЫЕ ДЛЯ FLY ==========
-local FlyActive = false
-local FlyBodyVelocity = nil
-local FlyBodyGyro = nil
-local FlyConnection = nil
-
--- ========== FAST BULLETS ==========
-local function ApplyFastBullets()
-    if not Settings.FastBullets_Enabled then return end
-    local now = tick()
-    if now - LastFastBulletApply < 0.2 then return end
-
-    local character = LocalPlayer.Character
-    if not character then return end
-    local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
-    if not tool then return end
-
-    local velocityProps = {
-        "BulletVelocity", "Velocity", "ProjectileVelocity", "Speed",
-        "BulletSpeed", "LaunchSpeed", "ShotVelocity", "MaxSpeed", "ProjectileSpeed"
-    }
-
-    for _, propName in ipairs(velocityProps) do
-        pcall(function()
-            if tool[propName] ~= nil then
-                if type(tool[propName]) == "number" then
-                    tool[propName] = tool[propName] * Settings.FastBullets_Multiplier
-                elseif tool[propName]:IsA("NumberValue") then
-                    tool[propName].Value = tool[propName].Value * Settings.FastBullets_Multiplier
-                end
-            end
-            for _, child in pairs(tool:GetDescendants()) do
-                if child:IsA("Part") or child:IsA("MeshPart") then
-                    if child[propName] ~= nil then
-                        if type(child[propName]) == "number" then
-                            child[propName] = child[propName] * Settings.FastBullets_Multiplier
-                        elseif child[propName]:IsA("NumberValue") then
-                            child[propName].Value = child[propName].Value * Settings.FastBullets_Multiplier
-                        end
-                    end
-                end
-            end
-        end)
-    end
-    LastFastBulletApply = now
-end
-
--- ========== NO RECOIL ==========
-local function ApplyNoRecoil()
-    if not Settings.Aimbot_NoRecoil then return end
-    local now = tick()
-    if now - LastRecoilReset < 0.1 then return end
-
-    local character = LocalPlayer.Character
-    if not character then return end
-    local tool = character:FindFirstChildOfClass("Tool") or character:FindFirstChildWhichIsA("Tool")
-    if tool then
-        local recoilProps = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin", "Shake", "Sway"}
-        for _, prop in ipairs(recoilProps) do
-            pcall(function()
-                if tool:FindFirstChild(prop) then
-                    tool[prop].Value = 0
-                end
-                if tool[prop] ~= nil then
-                    tool[prop] = 0
-                end
-            end)
-        end
-    end
-    LastRecoilReset = now
-end
 
 -- ========== ESP (ТОЛЬКО ГОЛОВА, КРУГ) ==========
 local function IsEnemy(p)
@@ -188,11 +98,13 @@ local function CreateHeadESP(p)
     local hum = char:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
+    -- Удаляем старый ESP
     if ESP_Cache[p] and ESP_Cache[p].Billboard then
         ESP_Cache[p].Billboard:Destroy()
         ESP_Cache[p] = nil
     end
 
+    -- Создаём BillboardGui с кругом
     local billboard = Instance.new("BillboardGui")
     billboard.Name = randomString(12)
     billboard.Adornee = head
@@ -232,25 +144,6 @@ local function RemoveESP(p)
     end
 end
 
-local function UpdateESPColor(p)
-    if not Settings.ESP_Enabled then
-        RemoveESP(p)
-        return
-    end
-    if not IsEnemy(p) then
-        RemoveESP(p)
-        return
-    end
-    if not ESP_Cache[p] then
-        CreateHeadESP(p)
-    else
-        local circle = ESP_Cache[p].Circle
-        if circle then
-            circle.ImageColor3 = Settings.ESP_Color
-        end
-    end
-end
-
 local function RefreshAllESP()
     for p, _ in pairs(ESP_Cache) do
         RemoveESP(p)
@@ -262,160 +155,7 @@ local function RefreshAllESP()
     end
 end
 
--- ========== FLY (UNDETECTED) ==========
-local function StartFly()
-    if FlyActive then return end
-    local character = LocalPlayer.Character
-    if not character then return end
-    local root = character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not root or not humanoid then return end
-
-    -- Отключаем стандартную физику, но не через PlatformStand (античит может заметить)
-    -- Вместо этого используем BodyVelocity и BodyGyro с низким приоритетом
-    -- Также включаем noclip через отключение CanCollide на всех частях
-
-    -- Noclip
-    for _, part in pairs(character:GetChildren()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-        end
-    end
-
-    -- BodyVelocity
-    FlyBodyVelocity = Instance.new("BodyVelocity")
-    FlyBodyVelocity.Name = randomString(8)
-    FlyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-    FlyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    FlyBodyVelocity.P = 1250
-    FlyBodyVelocity.Parent = root
-
-    -- BodyGyro (для удержания ориентации)
-    FlyBodyGyro = Instance.new("BodyGyro")
-    FlyBodyGyro.Name = randomString(8)
-    FlyBodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
-    FlyBodyGyro.P = 1000
-    FlyBodyGyro.D = 500
-    FlyBodyGyro.CFrame = root.CFrame
-    FlyBodyGyro.Parent = root
-
-    -- Защита объектов
-    if syn and syn.protect_gui then
-        syn.protect_gui(FlyBodyVelocity)
-        syn.protect_gui(FlyBodyGyro)
-    elseif protect_gui then
-        protect_gui(FlyBodyVelocity)
-        protect_gui(FlyBodyGyro)
-    end
-
-    -- Смена владельца сети (чтобы сервер меньше проверял)
-    root:SetNetworkOwner(LocalPlayer)
-
-    -- Управление в Heartbeat
-    FlyConnection = RunService.Heartbeat:Connect(function()
-        if not FlyActive or not character or not root or not humanoid then
-            StopFly()
-            return
-        end
-
-        -- Обновление noclip (некоторые игры восстанавливают CanCollide)
-        for _, part in pairs(character:GetChildren()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-
-        -- Направление от камеры
-        local moveDirection = Vector3.new()
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDirection = moveDirection + Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDirection = moveDirection - Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDirection = moveDirection - Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDirection = moveDirection + Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDirection = moveDirection + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            moveDirection = moveDirection - Vector3.new(0, 1, 0)
-        end
-
-        if moveDirection.Magnitude > 0 then
-            moveDirection = moveDirection.Unit * Settings.Fly_Speed
-        end
-
-        -- Применяем скорость
-        FlyBodyVelocity.Velocity = moveDirection
-
-        -- Держим ориентацию по камере (горизонтально)
-        local lookCF = CFrame.lookAt(Vector3.new(), Camera.CFrame.LookVector)
-        FlyBodyGyro.CFrame = lookCF
-    end)
-
-    FlyActive = true
-end
-
-local function StopFly()
-    if FlyBodyVelocity then
-        FlyBodyVelocity:Destroy()
-        FlyBodyVelocity = nil
-    end
-    if FlyBodyGyro then
-        FlyBodyGyro:Destroy()
-        FlyBodyGyro = nil
-    end
-    if FlyConnection then
-        FlyConnection:Disconnect()
-        FlyConnection = nil
-    end
-    FlyActive = false
-
-    -- Восстанавливаем CanCollide
-    local character = LocalPlayer.Character
-    if character then
-        for _, part in pairs(character:GetChildren()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-end
-
-local function ToggleFly()
-    if FlyActive then
-        StopFly()
-    else
-        StartFly()
-    end
-end
-
--- Обработка клавиши Fly
-UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.KeyCode == Settings.Fly_Key then
-        Settings.Fly_Enabled = not Settings.Fly_Enabled
-        if Settings.Fly_Enabled then
-            StartFly()
-        else
-            StopFly()
-        end
-    end
-end)
-
--- Автоматическое выключение при респе
-LocalPlayer.CharacterAdded:Connect(function()
-    if FlyActive then
-        StopFly()
-        Settings.Fly_Enabled = false
-    end
-end)
-
--- ========== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP ==========
+-- ========== СОБЫТИЯ ИГРОКОВ ==========
 local function onCharacterAdded(p, char)
     if p == LocalPlayer then return end
     task.wait(0.1)
@@ -444,15 +184,15 @@ end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- ========== AIMBOT LOGIC ==========
+-- ========== AIMBOT ==========
 local function IsTeamMate(p)
     if not Settings.Aimbot_TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
 
+-- Проверка видимости (не стенобой, просто честная)
 local function IsVisible(character)
-    if Settings.Aimbot_Wallbang then return true end
     local head = character:FindFirstChild("Head")
     if not head then return false end
     local origin = Camera.CFrame.Position
@@ -462,53 +202,33 @@ local function IsVisible(character)
     return hit and hit:IsDescendantOf(character)
 end
 
+-- Выбор цели: ближайший по 3D дистанции
 local function GetTarget()
     if not Settings.Aimbot_Enabled then return nil end
 
-    local targets = {}
+    local closest = nil
+    local closestDist = math.huge
     local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
-    local mousePos = UserInputService:GetMouseLocation()
+    if not myHead then return nil end
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
             if not IsTeamMate(p) and IsVisible(p.Character) then
                 local head = p.Character:FindFirstChild("Head")
                 if head then
-                    local dist3D = myHead and (head.Position - myHead.Position).Magnitude or math.huge
-                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
-                    if onScreen then
-                        local dist2D = (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude
-                        table.insert(targets, {
-                            player = p,
-                            head = head,
-                            dist3D = dist3D,
-                            dist2D = dist2D,
-                        })
+                    local dist = (head.Position - myHead.Position).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closest = p
                     end
                 end
             end
         end
     end
-
-    if #targets == 0 then return nil end
-
-    if Settings.Aimbot_TargetMode == "FOV" then
-        local best = nil
-        local bestDist = Settings.Aimbot_FOV
-        for _, t in ipairs(targets) do
-            if t.dist2D < bestDist then
-                bestDist = t.dist2D
-                best = t.player
-            end
-        end
-        return best
-    else
-        table.sort(targets, function(a,b) return a.dist3D < b.dist3D end)
-        return targets[1].player
-    end
+    return closest
 end
 
--- ========== УПРАВЛЕНИЕ КЛАВИШЕЙ АИМА ==========
+-- Управление клавишей
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Settings.Aimbot_Key then
         IsKeyHolding = true
@@ -522,18 +242,10 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- ========== ГЛАВНЫЙ ЦИКЛ ==========
+-- Главный цикл (только наведение)
 RunService.RenderStepped:Connect(function()
-    ApplyFastBullets()
-    ApplyNoRecoil()
-
-    local now = tick()
-
     if Settings.Aimbot_Enabled and IsKeyHolding then
-        if now - LastTargetUpdate >= TARGET_UPDATE_RATE then
-            AimTarget = GetTarget()
-            LastTargetUpdate = now
-        end
+        AimTarget = GetTarget()
     else
         AimTarget = nil
     end
@@ -543,19 +255,19 @@ RunService.RenderStepped:Connect(function()
         local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
         if onScreen then
             local targetPos = Vector2.new(vector.X, vector.Y)
+            local currentPos = UserInputService:GetMouseLocation()
+            local delta = targetPos - currentPos
 
-            if not Settings.Aimbot_SilentAim then
-                local currentPos = UserInputService:GetMouseLocation()
-                local delta = targetPos - currentPos
-                if delta.Magnitude > 0.5 then
-                    MoveMouse(delta.X, delta.Y)
-                end
+            -- Мгновенное наведение (без плавности) — быстрое следование
+            if not Settings.Aimbot_SilentAim and delta.Magnitude > 0.5 then
+                MoveMouse(delta.X, delta.Y)
             end
 
-            if Settings.Aimbot_AutoFire or Settings.Aimbot_RapidFire then
-                if now - LastShotTime >= Settings.Aimbot_RapidFireDelay then
+            -- Автоогонь, если включён
+            if Settings.Aimbot_AutoFire then
+                if tick() - LastShotTime >= 0.12 then  -- ~8 выстрелов/сек
                     ClickMouse()
-                    LastShotTime = now
+                    LastShotTime = tick()
                 end
             end
         end
@@ -576,7 +288,7 @@ local function CreateMenu()
 
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = randomString(8)
-    MainFrame.Size = UDim2.new(0, 280, 0, 750)
+    MainFrame.Size = UDim2.new(0, 260, 0, 250)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     MainFrame.BackgroundTransparency = 0.2
@@ -602,7 +314,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + AIMBOT + FLY"
+    Title.Text = "ESP + Aimbot (head)"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -646,7 +358,7 @@ local function CreateMenu()
         end
     end)
 
-    -- ===== ЭЛЕМЕНТЫ МЕНЮ =====
+    -- ===== ЭЛЕМЕНТЫ =====
     local yPos = 40
 
     local function CreateCheckbox(parent, text, yPos, getter, setter)
@@ -684,146 +396,10 @@ local function CreateMenu()
             box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
             if text == "ESP Enabled" then
                 RefreshAllESP()
-            elseif text == "Fly Enabled" then
-                if new then
-                    StartFly()
-                else
-                    StopFly()
-                end
             end
         end)
     end
 
-    local function CreateSlider(parent, text, yPos, getter, setter, min, max, format)
-        local bg = Instance.new("Frame")
-        bg.Size = UDim2.new(1, -20, 0, 40)
-        bg.Position = UDim2.new(0, 10, 0, yPos)
-        bg.BackgroundTransparency = 1
-        bg.Parent = parent
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 0, 20)
-        label.BackgroundTransparency = 1
-        label.Text = text .. ": " .. string.format(format, getter())
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.Font = Enum.Font.SourceSans
-        label.TextSize = 16
-        label.Parent = bg
-
-        local sliderBg = Instance.new("Frame")
-        sliderBg.Size = UDim2.new(1, 0, 0, 10)
-        sliderBg.Position = UDim2.new(0, 0, 0, 25)
-        sliderBg.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-        sliderBg.Parent = bg
-
-        local sliderCorner = Instance.new("UICorner")
-        sliderCorner.CornerRadius = UDim.new(0, 4)
-        sliderCorner.Parent = sliderBg
-
-        local fill = Instance.new("Frame")
-        fill.Size = UDim2.new((getter() - min) / (max - min), 0, 1, 0)
-        fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-        fill.Parent = sliderBg
-
-        local fillCorner = Instance.new("UICorner")
-        fillCorner.CornerRadius = UDim.new(0, 4)
-        fillCorner.Parent = fill
-
-        local dragging = false
-        fill.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-            end
-        end)
-
-        UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-
-        RunService.RenderStepped:Connect(function()
-            if dragging then
-                local mousePos = UserInputService:GetMouseLocation()
-                local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
-                local absSizeX = sliderBg.AbsoluteSize.X
-                local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
-                local percent = relativeX / absSizeX
-                local value = min + (max - min) * percent
-                setter(value)
-                fill.Size = UDim2.new(percent, 0, 1, 0)
-                label.Text = text .. ": " .. string.format(format, value)
-            end
-        end)
-    end
-
-    local function CreateDropdown(parent, text, yPos, options, getter, setter)
-        local bg = Instance.new("Frame")
-        bg.Size = UDim2.new(1, -20, 0, 30)
-        bg.Position = UDim2.new(0, 10, 0, yPos)
-        bg.BackgroundTransparency = 1
-        bg.Parent = parent
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0, 80, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = text .. ":"
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Font = Enum.Font.SourceSans
-        label.TextSize = 16
-        label.Parent = bg
-
-        local button = Instance.new("TextButton")
-        button.Size = UDim2.new(1, -90, 0, 25)
-        button.Position = UDim2.new(0, 85, 0.5, -12.5)
-        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        button.Text = getter()
-        button.TextColor3 = Color3.new(1, 1, 1)
-        button.Font = Enum.Font.SourceSans
-        button.TextSize = 16
-        button.Parent = bg
-
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 4)
-        btnCorner.Parent = button
-
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, 0, 0, #options * 25)
-        frame.Position = UDim2.new(0, 0, 0, 30)
-        frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        frame.BackgroundTransparency = 0.1
-        frame.Visible = false
-        frame.Parent = bg
-
-        local frmCorner = Instance.new("UICorner")
-        frmCorner.CornerRadius = UDim.new(0, 4)
-        frmCorner.Parent = frame
-
-        for i, opt in ipairs(options) do
-            local optBtn = Instance.new("TextButton")
-            optBtn.Size = UDim2.new(1, 0, 0, 25)
-            optBtn.Position = UDim2.new(0, 0, 0, (i-1)*25)
-            optBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            optBtn.Text = opt
-            optBtn.TextColor3 = Color3.new(1, 1, 1)
-            optBtn.Font = Enum.Font.SourceSans
-            optBtn.TextSize = 16
-            optBtn.Parent = frame
-
-            optBtn.MouseButton1Click:Connect(function()
-                setter(opt)
-                button.Text = opt
-                frame.Visible = false
-            end)
-        end
-
-        button.MouseButton1Click:Connect(function()
-            frame.Visible = not frame.Visible
-        end)
-    end
-
-    -- === ПОСТРОЕНИЕ МЕНЮ ===
     CreateCheckbox(MainFrame, "ESP Enabled", yPos,
         function() return Settings.ESP_Enabled end,
         function(v) Settings.ESP_Enabled = v end)
@@ -834,18 +410,6 @@ local function CreateMenu()
         function(v) Settings.Aimbot_Enabled = v end)
     yPos = yPos + 35
 
-    CreateDropdown(MainFrame, "Target Mode", yPos,
-        {"3D", "FOV"},
-        function() return Settings.Aimbot_TargetMode end,
-        function(v) Settings.Aimbot_TargetMode = v end)
-    yPos = yPos + 40
-
-    CreateSlider(MainFrame, "FOV (FOV mode)", yPos,
-        function() return Settings.Aimbot_FOV end,
-        function(v) Settings.Aimbot_FOV = v end,
-        30, 300, "%.0f")
-    yPos = yPos + 50
-
     CreateCheckbox(MainFrame, "Team Check", yPos,
         function() return Settings.Aimbot_TeamCheck end,
         function(v)
@@ -853,27 +417,6 @@ local function CreateMenu()
             RefreshAllESP()
         end)
     yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Wallbang", yPos,
-        function() return Settings.Aimbot_Wallbang end,
-        function(v) Settings.Aimbot_Wallbang = v end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "No Recoil", yPos,
-        function() return Settings.Aimbot_NoRecoil end,
-        function(v) Settings.Aimbot_NoRecoil = v end)
-    yPos = yPos + 35
-
-    CreateCheckbox(MainFrame, "Rapid Fire", yPos,
-        function() return Settings.Aimbot_RapidFire end,
-        function(v) Settings.Aimbot_RapidFire = v end)
-    yPos = yPos + 35
-
-    CreateSlider(MainFrame, "Rapid Fire Delay", yPos,
-        function() return Settings.Aimbot_RapidFireDelay end,
-        function(v) Settings.Aimbot_RapidFireDelay = v end,
-        0.01, 0.2, "%.2fs")
-    yPos = yPos + 50
 
     CreateCheckbox(MainFrame, "Auto Fire", yPos,
         function() return Settings.Aimbot_AutoFire end,
@@ -885,47 +428,11 @@ local function CreateMenu()
         function(v) Settings.Aimbot_SilentAim = v end)
     yPos = yPos + 35
 
-    CreateCheckbox(MainFrame, "Fast Bullets", yPos,
-        function() return Settings.FastBullets_Enabled end,
-        function(v) Settings.FastBullets_Enabled = v end)
-    yPos = yPos + 35
-
-    CreateSlider(MainFrame, "Bullet Speed Multiplier", yPos,
-        function() return Settings.FastBullets_Multiplier end,
-        function(v) Settings.FastBullets_Multiplier = v end,
-        2, 20, "%.0fx")
-    yPos = yPos + 50
-
-    -- ===== FLY SECTION =====
-    CreateCheckbox(MainFrame, "Fly Enabled", yPos,
-        function() return Settings.Fly_Enabled end,
-        function(v) Settings.Fly_Enabled = v end)
-    yPos = yPos + 35
-
-    CreateSlider(MainFrame, "Fly Speed", yPos,
-        function() return Settings.Fly_Speed end,
-        function(v) Settings.Fly_Speed = v end,
-        20, 200, "%.0f")
-    yPos = yPos + 50
-
-    -- Информация о клавише
-    local keyLabel = Instance.new("TextLabel")
-    keyLabel.Size = UDim2.new(1, -20, 0, 25)
-    keyLabel.Position = UDim2.new(0, 10, 0, yPos)
-    keyLabel.BackgroundTransparency = 1
-    keyLabel.Text = "Fly Key: F (toggle)"
-    keyLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    keyLabel.Font = Enum.Font.SourceSans
-    keyLabel.TextSize = 15
-    keyLabel.TextXAlignment = Enum.TextXAlignment.Left
-    keyLabel.Parent = MainFrame
-    yPos = yPos + 35
-
     local RefreshBtn = Instance.new("TextButton")
     RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
     RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
     RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH ESP (HEAD CIRCLES)"
+    RefreshBtn.Text = "REFRESH ESP"
     RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
     RefreshBtn.Font = Enum.Font.SourceSansBold
     RefreshBtn.TextSize = 16
@@ -941,4 +448,4 @@ end
 -- ========== ЗАПУСК ==========
 CreateMenu()
 RefreshAllESP()
-print("✅ ESP (жёлтый круг на голове) + Aimbot + Fast Bullets + No Recoil + UNDETECTED FLY. Клавиша F - вкл/выкл полёт.")
+print("✅ ESP (круг на голове) + Aimbot (слежение за головой). Удерживайте ПКМ для наведения.")
