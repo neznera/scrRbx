@@ -54,9 +54,9 @@ end
 
 -- ========== НАСТРОЙКИ ==========
 local Settings = {
-    -- ESP (Highlight)
+    -- ESP (только голова, круг)
     ESP_Enabled = true,
-    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый для врагов
+    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый
 
     -- Aimbot
     Aimbot_Enabled = true,
@@ -77,7 +77,7 @@ local Settings = {
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
-local HighlightCache = setmetatable({}, {__mode = "v"})  -- для Highlight
+local ESP_Cache = setmetatable({}, {__mode = "v"})  -- для BillboardGui на голову
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
@@ -155,93 +155,109 @@ local function ApplyNoRecoil()
     LastRecoilReset = now
 end
 
--- ========== ESP (HIGHLIGHT) ==========
--- Подсвечивает ТОЛЬКО ВРАГОВ, видно сквозь стены, цвет жёлтый
+-- ========== ESP (ТОЛЬКО ГОЛОВА, КРУГ) ==========
+-- Проверка, враг ли игрок
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.Aimbot_TeamCheck then
-        -- если включена проверка тимы, то враги — те, у кого команда отличается
         if not p.Team or not LocalPlayer.Team then return true end
         return p.Team ~= LocalPlayer.Team
     else
-        -- если TeamCheck выключен — все игроки считаются врагами
         return true
     end
 end
 
-local function CreateHighlight(p)
+-- Создание круга на голову
+local function CreateHeadESP(p)
     if not Settings.ESP_Enabled then return end
-    if not IsEnemy(p) then return end  -- только враги
+    if not IsEnemy(p) then return end
 
     local char = p.Character
     if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
     local hum = char:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый Highlight, если есть
-    if HighlightCache[p] and HighlightCache[p].Highlight then
-        HighlightCache[p].Highlight:Destroy()
-        HighlightCache[p] = nil
+    -- Удаляем старый ESP, если есть
+    if ESP_Cache[p] and ESP_Cache[p].Billboard then
+        ESP_Cache[p].Billboard:Destroy()
+        ESP_Cache[p] = nil
     end
 
-    -- Создаём новый Highlight
-    local highlight = Instance.new("Highlight")
-    highlight.Name = randomString(12)
-    highlight.Adornee = char
-    -- Настройки: только обводка (FillTransparency = 1), Outline цвет = жёлтый
-    highlight.FillTransparency = 1      -- без заливки
-    highlight.OutlineColor = Settings.ESP_Color
-    highlight.OutlineTransparency = 0   -- непрозрачная обводка
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop  -- видно сквозь стены
-    highlight.Parent = CoreGui
+    -- Создаём BillboardGui с кругом
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = randomString(12)
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(1.5, 0, 1.5, 0)  -- размер круга относительно головы
+    billboard.StudsOffset = Vector3.new(0, 0.5, 0)  -- чуть выше
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.Parent = CoreGui
 
+    -- Защита
     if syn and syn.protect_gui then
-        syn.protect_gui(highlight)
+        syn.protect_gui(billboard)
     elseif protect_gui then
-        protect_gui(highlight)
+        protect_gui(billboard)
     end
 
-    HighlightCache[p] = {
-        Highlight = highlight,
-        Character = char,
+    -- Круг (ImageLabel с круглой картинкой)
+    local circle = Instance.new("ImageLabel")
+    circle.Name = randomString(8)
+    circle.Size = UDim2.new(1, 0, 1, 0)
+    circle.BackgroundTransparency = 1
+    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"  -- круглый placeholder
+    circle.ImageColor3 = Settings.ESP_Color
+    circle.ImageTransparency = 0.3
+    circle.ScaleType = Enum.ScaleType.Fit
+    circle.Parent = billboard
+
+    -- Можно добавить обводку или эффект свечения
+    -- Для простоты оставим так
+
+    ESP_Cache[p] = {
+        Billboard = billboard,
+        Head = head,
+        Circle = circle,
     }
 end
 
-local function RemoveHighlight(p)
-    if HighlightCache[p] and HighlightCache[p].Highlight then
-        HighlightCache[p].Highlight:Destroy()
-        HighlightCache[p] = nil
+local function RemoveESP(p)
+    if ESP_Cache[p] and ESP_Cache[p].Billboard then
+        ESP_Cache[p].Billboard:Destroy()
+        ESP_Cache[p] = nil
     end
 end
 
-local function UpdateHighlightColor(p)
+local function UpdateESPColor(p)
     if not Settings.ESP_Enabled then
-        RemoveHighlight(p)
+        RemoveESP(p)
         return
     end
     if not IsEnemy(p) then
-        RemoveHighlight(p)
+        RemoveESP(p)
         return
     end
-    -- Если враг, но подсветки нет — создаём
-    if not HighlightCache[p] then
-        CreateHighlight(p)
+    -- Если враг, но ESP нет — создаём
+    if not ESP_Cache[p] then
+        CreateHeadESP(p)
     else
-        -- Обновляем цвет, если изменился
-        local highlight = HighlightCache[p].Highlight
-        if highlight then
-            highlight.OutlineColor = Settings.ESP_Color
+        -- Обновляем цвет круга
+        local circle = ESP_Cache[p].Circle
+        if circle then
+            circle.ImageColor3 = Settings.ESP_Color
         end
     end
 end
 
 local function RefreshAllESP()
-    for p, _ in pairs(HighlightCache) do
-        RemoveHighlight(p)
+    for p, _ in pairs(ESP_Cache) do
+        RemoveESP(p)
     end
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer then
-            CreateHighlight(p)
+            CreateHeadESP(p)
         end
     end
 end
@@ -249,35 +265,31 @@ end
 -- ========== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP ==========
 local function onCharacterAdded(p, char)
     if p == LocalPlayer then return end
-    -- Небольшая задержка, чтобы персонаж полностью загрузился
     task.wait(0.1)
-    CreateHighlight(p)
+    CreateHeadESP(p)
 end
 
 local function onCharacterRemoving(p, char)
-    RemoveHighlight(p)
+    RemoveESP(p)
 end
 
--- Подписка на существующих игроков
 for _, p in pairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
         if p.Character then
-            CreateHighlight(p)
+            CreateHeadESP(p)
         end
         p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
         p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
     end
 end
 
--- Подписка на новых игроков
 Players.PlayerAdded:Connect(function(p)
     if p == LocalPlayer then return end
     p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
     p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
 end)
 
--- Очистка при выходе игрока
-Players.PlayerRemoving:Connect(RemoveHighlight)
+Players.PlayerRemoving:Connect(RemoveESP)
 
 -- ========== AIMBOT LOGIC ==========
 local function IsTeamMate(p)
@@ -359,14 +371,11 @@ end)
 
 -- ========== ГЛАВНЫЙ ЦИКЛ ==========
 RunService.RenderStepped:Connect(function()
-    -- Fast Bullets
     ApplyFastBullets()
-    -- No Recoil
     ApplyNoRecoil()
 
     local now = tick()
 
-    -- Обновление цели
     if Settings.Aimbot_Enabled and IsKeyHolding then
         if now - LastTargetUpdate >= TARGET_UPDATE_RATE then
             AimTarget = GetTarget()
@@ -376,7 +385,6 @@ RunService.RenderStepped:Connect(function()
         AimTarget = nil
     end
 
-    -- Наведение и стрельба
     if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
         local head = AimTarget.Character.Head
         local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
@@ -441,7 +449,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aim God (HIGHLIGHT)"
+    Title.Text = "ESP (голова) + Aimbot"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -521,7 +529,6 @@ local function CreateMenu()
             local new = not getter()
             setter(new)
             box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
-            -- При изменении ESP_Enabled обновляем подсветку
             if text == "ESP Enabled" then
                 RefreshAllESP()
             end
@@ -663,9 +670,6 @@ local function CreateMenu()
         function(v) Settings.ESP_Enabled = v end)
     yPos = yPos + 35
 
-    -- Цвет ESP фиксирован жёлтый, можно добавить выбор цвета, но по запросу оставим
-    yPos = yPos + 5
-
     CreateCheckbox(MainFrame, "Aimbot Enabled", yPos,
         function() return Settings.Aimbot_Enabled end,
         function(v) Settings.Aimbot_Enabled = v end)
@@ -687,7 +691,7 @@ local function CreateMenu()
         function() return Settings.Aimbot_TeamCheck end,
         function(v)
             Settings.Aimbot_TeamCheck = v
-            RefreshAllESP()  -- обновить подсветку при изменении TeamCheck
+            RefreshAllESP()
         end)
     yPos = yPos + 35
 
@@ -722,7 +726,6 @@ local function CreateMenu()
         function(v) Settings.Aimbot_SilentAim = v end)
     yPos = yPos + 35
 
-    -- Fast Bullets
     CreateCheckbox(MainFrame, "Fast Bullets", yPos,
         function() return Settings.FastBullets_Enabled end,
         function(v) Settings.FastBullets_Enabled = v end)
@@ -738,7 +741,7 @@ local function CreateMenu()
     RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
     RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
     RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH HIGHLIGHT"
+    RefreshBtn.Text = "REFRESH ESP (HEAD CIRCLES)"
     RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
     RefreshBtn.Font = Enum.Font.SourceSansBold
     RefreshBtn.TextSize = 16
@@ -754,4 +757,4 @@ end
 -- ========== ЗАПУСК ==========
 CreateMenu()
 RefreshAllESP()
-print("✅ ESP через Highlight (только враги, жёлтая обводка) + Aimbot + Fast Bullets. Удерживайте ПКМ.")
+print("✅ ESP — жёлтый круг на голове врага. Аимбот в голову. Удерживайте ПКМ.")
