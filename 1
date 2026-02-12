@@ -1,693 +1,548 @@
 --[[
-    ███████╗██╗  ██╗██╗██╗     ███████╗    ██╗  ██╗██╗   ██╗██████╗ 
-    ██╔════╝╚██╗██╔╝██║██║     ██╔════╝    ██║  ██║██║   ██║██╔══██╗
-    █████╗   ╚███╔╝ ██║██║     █████╗      ███████║██║   ██║██████╔╝
-    ██╔══╝   ██╔██╗ ██║██║     ██╔══╝      ██╔══██║██║   ██║██╔══██╗
-    ███████╗██╔╝ ██╗██║███████╗███████╗    ██║  ██║╚██████╔╝██████╔╝
-    ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ 
-    
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║  ВНИМАНИЕ: Данный скрипт полностью игнорирует Roblox ToS.        ║
-    ║  Использование в публичных серверах = 100% бан аккаунта.         ║
-    ║  Тебе плевать. Я предупредил. Поехали.                           ║
-    ╚═══════════════════════════════════════════════════════════════════╝
+    🔥 ULTRA LIGHT ESP + AIMBOT (ZERO MEMORY LEAK)
+    - ESP через Drawing (не создаёт экземпляры Roblox)
+    - Aimbot без объектов
+    - Полное удаление всех следов
 ]]
 
--- =====================================================================
--- БЛОК 1: ЗАГРУЗЧИК И ЗАЩИТА (НИ ОДИН ИЗ ВАШИХ ПОИСКОВЫХ РЕЗУЛЬТАТОВ НЕ ДАЕТ ЭТОГО)
--- =====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Debris = game:GetService("Debris")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser")
-local Workspace = game:GetService("Workspace")
-local Lighting = game:GetService("Lighting")
+
+-- Защита CoreGui
+if syn and syn.protect_gui then
+    syn.protect_gui(CoreGui)
+elseif protect_gui then
+    protect_gui(CoreGui)
+end
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
 
--- Анти-аффект: защита от краша при повторном запуске
-if syn and syn.protect_gui then syn.protect_gui(CoreGui) end
-if protect_gui then protect_gui(CoreGui) end
+-- ===== ПРОВЕРКА ПОДДЕРЖКИ DRAWING =====
+local DrawingSupported = pcall(Drawing.new, "Circle")
 
--- =====================================================================
--- БЛОК 2: НАСТРОЙКИ ПО УМОЛЧАНИЮ (ВСЁ ВКЛЮЧЕНО НА ПОЛНУЮ)
--- =====================================================================
+-- ===== НАСТРОЙКИ =====
 local Settings = {
-    -- ЛЕТАНИЕ
-    FlyEnabled = false,
-    FlySpeed = 75,
-    FlyBody = nil,
-    FlyGyro = nil,
-    
-    -- ФЛИНГ (ВЫКИДЫВАНИЕ ИГРОКОВ)
-    FlingEnabled = false,
-    FlingTarget = nil,
-    FlingPower = 5000,
-    FlingPart = nil,
-    
-    -- КИК/КРАШ
-    KickEnabled = true,
-    CrashEnabled = true,
-    
-    -- ESP (ПОДСВЕТКА ВРАГОВ)
-    EspEnabled = true,
-    EspColor = Color3.fromRGB(255, 0, 0), -- Красный
-    
-    -- ГРАВИТАЦИЯ
-    GravityEnabled = false,
-    GravityPower = 50,
-    
-    -- ИНТЕРФЕЙС
-    MenuVisible = true,
-    CurrentTab = "Главная",
+    ESP_Enabled = true,
+    Aimbot_Enabled = true,
+    TeamCheck = true,
+    FOV = 120,
 }
 
--- =====================================================================
--- БЛОК 3: СЛУЧАЙНЫЕ ИМЕНА (ЗАЩИТА ОТ АНТИЧИТА)
--- =====================================================================
-local function randomString(len)
-    local str = ""
-    for i = 1, len do str = str .. string.char(math.random(65, 90)) end
-    return str
-end
+-- ===== ПЕРЕМЕННЫЕ =====
+local IsAiming = false
+local ESP_Drawings = setmetatable({}, {__mode = "v"})  -- для Drawing
+local ESP_Billboards = setmetatable({}, {__mode = "v"}) -- для BillboardGui
 
--- =====================================================================
--- БЛОК 4: ESP — ПОДСВЕТКА ИГРОКОВ (КРАСНЫЕ КРУГИ)
--- =====================================================================
-local ESP_Cache = setmetatable({}, {__mode = "v"})
-
-local function IsEnemy(p)
-    return p ~= LocalPlayer
-end
-
-local function CreateESP(p)
-    if not Settings.EspEnabled then return end
-    if not IsEnemy(p) then return end
-    
-    local char = p.Character
-    if not char then return end
-    local head = char:FindFirstChild("Head")
-    if not head then return end
-    
-    if ESP_Cache[p] then
-        pcall(function() ESP_Cache[p]:Destroy() end)
-        ESP_Cache[p] = nil
-    end
-    
-    local bill = Instance.new("BillboardGui")
-    bill.Name = randomString(12)
-    bill.Adornee = head
-    bill.Size = UDim2.new(2, 0, 2, 0)
-    bill.StudsOffset = Vector3.new(0, 1, 0)
-    bill.AlwaysOnTop = true
-    bill.Parent = CoreGui
-    
-    local circle = Instance.new("ImageLabel")
-    circle.Size = UDim2.new(1, 0, 1, 0)
-    circle.BackgroundTransparency = 1
-    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-    circle.ImageColor3 = Settings.EspColor
-    circle.ImageTransparency = 0.2
-    circle.ScaleType = Enum.ScaleType.Fit
-    circle.Parent = bill
-    
-    ESP_Cache[p] = bill
-end
-
-local function RemoveESP(p)
-    if ESP_Cache[p] then
-        pcall(function() ESP_Cache[p]:Destroy() end)
-        ESP_Cache[p] = nil
-    end
-end
-
-local function RefreshESP()
-    for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
-    for _,p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then CreateESP(p) end
-    end
-end
-
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(function() task.wait(0.1); CreateESP(p) end)
-    if p.Character then CreateESP(p) end
-end)
-
-Players.PlayerRemoving:Connect(RemoveESP)
-
--- =====================================================================
--- БЛОК 5: FLY — АБСОЛЮТНЫЙ ПОЛЁТ (НИКТО НЕ ОСТАНОВИТ)
--- =====================================================================
-local function EnableFly()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not root or not hum then return end
-    
-    Settings.FlyEnabled = true
-    hum.PlatformStand = true
-    
-    Settings.FlyBody = Instance.new("BodyVelocity")
-    Settings.FlyBody.Name = randomString(12)
-    Settings.FlyBody.MaxForce = Vector3.new(9000, 9000, 9000)
-    Settings.FlyBody.Velocity = Vector3.new(0,0,0)
-    Settings.FlyBody.Parent = root
-    
-    Settings.FlyGyro = Instance.new("BodyGyro")
-    Settings.FlyGyro.Name = randomString(12)
-    Settings.FlyGyro.MaxTorque = Vector3.new(9000, 9000, 9000)
-    Settings.FlyGyro.P = 2000
-    Settings.FlyGyro.D = 1000
-    Settings.FlyGyro.CFrame = root.CFrame
-    Settings.FlyGyro.Parent = root
-end
-
-local function DisableFly()
-    Settings.FlyEnabled = false
-    if Settings.FlyBody then pcall(function() Settings.FlyBody:Destroy() end); Settings.FlyBody = nil end
-    if Settings.FlyGyro then pcall(function() Settings.FlyGyro:Destroy() end); Settings.FlyGyro = nil end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then hum.PlatformStand = false end
-    end
-end
-
-local function ToggleFly()
-    if Settings.FlyEnabled then DisableFly() else EnableFly() end
-end
-
--- =====================================================================
--- БЛОК 6: FLING — ВЫКИДЫВАНИЕ ИГРОКОВ В ДРУГОЕ ИЗМЕРЕНИЕ
--- =====================================================================
-local function CreateFlingPart(targetChar)
-    if not targetChar then return nil end
-    local root = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso")
-    if not root then return nil end
-    
-    local part = Instance.new("Part")
-    part.Name = randomString(12)
-    part.Size = Vector3.new(2,2,2)
-    part.Anchored = false
-    part.CanCollide = false
-    part.Transparency = 1
-    part.CFrame = root.CFrame * CFrame.new(0,0,2)
-    part.Parent = Workspace
-    
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = part
-    weld.Part1 = root
-    weld.Parent = part
-    
-    return part, weld
-end
-
-local function StartFling(targetPlayer)
-    if not targetPlayer then return end
-    Settings.FlingTarget = targetPlayer
-    
-    local char = targetPlayer.Character
-    if not char then return end
-    
-    -- Удаляем старый флинг-объект
-    if Settings.FlingPart and Settings.FlingPart.Parent then
-        pcall(function() Settings.FlingPart:Destroy() end)
-        Settings.FlingPart = nil
-    end
-    
-    local part, weld = CreateFlingPart(char)
-    if not part then return end
-    
-    Settings.FlingPart = part
-    
-    -- Вращение со скоростью 1000+ рад/сек — ГАРАНТИРОВАННЫЙ ВЫБРОС
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = randomString(12)
-    bv.MaxForce = Vector3.new(9000,9000,9000)
-    bv.Velocity = Vector3.new(0,100,0) * (Settings.FlingPower / 100)
-    bv.Parent = part
-    
-    local bav = Instance.new("BodyAngularVelocity")
-    bav.Name = randomString(12)
-    bav.MaxTorque = Vector3.new(9000,9000,9000)
-    bav.AngularVelocity = Vector3.new(1000,1000,1000) * (Settings.FlingPower / 500)
-    bav.Parent = part
-    
-    -- Автоотключение через 2 секунды
-    task.spawn(function()
-        task.wait(2)
-        if Settings.FlingPart then
-            pcall(function() Settings.FlingPart:Destroy() end)
-            Settings.FlingPart = nil
+-- ===== ESP ЧЕРЕЗ DRAWING (0 ИНСТАНСОВ) =====
+if DrawingSupported then
+    local function IsEnemy(p)
+        if p == LocalPlayer then return false end
+        if Settings.TeamCheck then
+            if not p.Team or not LocalPlayer.Team then return true end
+            return p.Team ~= LocalPlayer.Team
         end
-        Settings.FlingTarget = nil
+        return true
+    end
+
+    local function UpdateDrawingESP()
+        if not Settings.ESP_Enabled then
+            for _, circle in pairs(ESP_Drawings) do
+                circle.Visible = false
+            end
+            return
+        end
+
+        -- Делаем все круги невидимыми, потом покажем только видимых врагов
+        for _, circle in pairs(ESP_Drawings) do
+            circle.Visible = false
+        end
+
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                if IsEnemy(p) then
+                    local head = p.Character:FindFirstChild("Head")
+                    if head then
+                        local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+                        if onScreen then
+                            if not ESP_Drawings[p] then
+                                ESP_Drawings[p] = Drawing.new("Circle")
+                                ESP_Drawings[p].Thickness = 2
+                                ESP_Drawings[p].NumSides = 32
+                                ESP_Drawings[p].Radius = 25
+                                ESP_Drawings[p].Filled = false
+                                ESP_Drawings[p].Color = Color3.fromRGB(255, 255, 0)
+                                ESP_Drawings[p].Transparency = 0.5
+                                ESP_Drawings[p].ZIndex = 10
+                            end
+                            local circle = ESP_Drawings[p]
+                            circle.Position = Vector2.new(vec.X, vec.Y)
+                            circle.Visible = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    RunService.RenderStepped:Connect(UpdateDrawingESP)
+
+    -- Очистка при выходе игрока
+    Players.PlayerRemoving:Connect(function(p)
+        if ESP_Drawings[p] then
+            ESP_Drawings[p]:Remove()
+            ESP_Drawings[p] = nil
+        end
     end)
-end
-
-local function StopFling()
-    if Settings.FlingPart then
-        pcall(function() Settings.FlingPart:Destroy() end)
-        Settings.FlingPart = nil
+else
+    -- ===== ESP ЧЕРЕЗ BILLBOARDGUI (С ПОЛНЫМ УНИЧТОЖЕНИЕМ) =====
+    local function IsEnemy(p)
+        if p == LocalPlayer then return false end
+        if Settings.TeamCheck then
+            if not p.Team or not LocalPlayer.Team then return true end
+            return p.Team ~= LocalPlayer.Team
+        end
+        return true
     end
-    Settings.FlingTarget = nil
-end
 
--- =====================================================================
--- БЛОК 7: KICK — ВЫБРОС ИГРОКА ИЗ СЕРВЕРА
--- =====================================================================
-local function KickPlayer(targetPlayer, reason)
-    if not targetPlayer then return end
-    if not Settings.KickEnabled then return end
-    
-    local success, err = pcall(function()
-        targetPlayer:Kick("🔥 EXILE HUB | " .. (reason or "Ты был изгнан."))
+    local function CreateBillboardESP(p)
+        if not Settings.ESP_Enabled then return end
+        if not IsEnemy(p) then return end
+
+        local char = p.Character
+        if not char then return end
+        local head = char:FindFirstChild("Head")
+        local hum = char:FindFirstChild("Humanoid")
+        if not head or not hum or hum.Health <= 0 then return end
+
+        -- Удаляем старый
+        if ESP_Billboards[p] then
+            ESP_Billboards[p]:Destroy()
+            ESP_Billboards[p] = nil
+        end
+
+        local bill = Instance.new("BillboardGui")
+        bill.Name = "ESP_" .. p.Name
+        bill.Adornee = head
+        bill.Size = UDim2.new(1.5, 0, 1.5, 0)
+        bill.StudsOffset = Vector3.new(0, 0.5, 0)
+        bill.AlwaysOnTop = true
+        bill.LightInfluence = 0
+        bill.Parent = CoreGui
+
+        local circle = Instance.new("ImageLabel")
+        circle.Size = UDim2.new(1, 0, 1, 0)
+        circle.BackgroundTransparency = 1
+        circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+        circle.ImageColor3 = Color3.fromRGB(255, 255, 0)
+        circle.ImageTransparency = 0.3
+        circle.ScaleType = Enum.ScaleType.Fit
+        circle.Parent = bill
+
+        ESP_Billboards[p] = bill
+    end
+
+    local function RemoveBillboardESP(p)
+        if ESP_Billboards[p] then
+            ESP_Billboards[p]:Destroy()
+            ESP_Billboards[p] = nil
+        end
+    end
+
+    local function RefreshBillboardESP()
+        for p, _ in pairs(ESP_Billboards) do
+            RemoveBillboardESP(p)
+        end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then CreateBillboardESP(p) end
+        end
+    end
+
+    local function onCharacterAdded(p)
+        if p == LocalPlayer then return end
+        task.wait(0.1)
+        CreateBillboardESP(p)
+    end
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if p.Character then CreateBillboardESP(p) end
+            p.CharacterAdded:Connect(onCharacterAdded)
+            p.CharacterRemoving:Connect(function() RemoveBillboardESP(p) end)
+        end
+    end
+
+    Players.PlayerAdded:Connect(function(p)
+        if p == LocalPlayer then return end
+        p.CharacterAdded:Connect(onCharacterAdded)
+        p.CharacterRemoving:Connect(function() RemoveBillboardESP(p) end)
     end)
+
+    Players.PlayerRemoving:Connect(RemoveBillboardESP)
+    RefreshBillboardESP()
 end
 
--- =====================================================================
--- БЛОК 8: CRASH — ПАДЕНИЕ FPS ДО НУЛЯ (КРАШ КЛИЕНТА)
--- =====================================================================
-local function CrashPlayer(targetPlayer)
-    if not targetPlayer then return end
-    if not Settings.CrashEnabled then return end
-    
-    local char = targetPlayer.Character
-    if not char then return end
-    
-    -- Метод 1: ТЫСЯЧИ ПАРТОВ
-    for i = 1, 1000 do
-        local p = Instance.new("Part")
-        p.Parent = Workspace
-        p.CFrame = char:GetPivot() * CFrame.new(math.random(-100,100), math.random(-100,100), math.random(-100,100))
-        p.Anchored = false
-        p.CanCollide = true
-        p.Velocity = Vector3.new(math.random(-1000,1000), math.random(-1000,1000), math.random(-1000,1000))
-        Debris:AddItem(p, 5)
-    end
-    
-    -- Метод 2: БЕСКОНЕЧНЫЕ ЗВУКИ
-    for i = 1, 50 do
-        local s = Instance.new("Sound")
-        s.SoundId = "rbxassetid://9120387439"
-        s.Looped = true
-        s.Volume = 10
-        s.Parent = char
-        s:Play()
-        Debris:AddItem(s, 3)
+-- ===== AIMBOT (ТОЛЬКО МЫШЬ, 0 ОБЪЕКТОВ) =====
+local function MoveMouse(targetX, targetY)
+    local current = UserInputService:GetMouseLocation()
+    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
+    if delta.Magnitude < 0.5 then return end
+    if mousemoverel then
+        mousemoverel(delta.X, delta.Y)
+    elseif syn and syn.input then
+        syn.input.MouseMove(delta.X, delta.Y)
     end
 end
 
--- =====================================================================
--- БЛОК 9: ГРАВИТАЦИЯ — ВСЕ ПАДАЮТ
--- =====================================================================
-local function SetGravity(power)
-    Workspace.Gravity = power or Settings.GravityPower
-end
-
-local function ToggleGravity()
-    Settings.GravityEnabled = not Settings.GravityEnabled
-    if Settings.GravityEnabled then
-        Workspace.Gravity = Settings.GravityPower
-    else
-        Workspace.Gravity = 196.2
+local function GetClosestEnemy()
+    local mousePos = UserInputService:GetMouseLocation()
+    local closest, closestDist = nil, Settings.FOV
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            if not (Settings.TeamCheck and p.Team == LocalPlayer.Team) then
+                local head = p.Character:FindFirstChild("Head")
+                if head then
+                    local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = p
+                        end
+                    end
+                end
+            end
+        end
     end
+    return closest
 end
 
--- =====================================================================
--- БЛОК 10: ИНТЕРФЕЙС — ПОЛНОЕ УПРАВЛЕНИЕ ХАОСОМ
--- =====================================================================
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = randomString(12)
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 650, 0, 450)
-MainFrame.Position = UDim2.new(0.5, -325, 0.5, -225)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-MainFrame.BackgroundTransparency = 0.1
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-
--- Стиль: агрессивный, черно-красный
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 12)
-UICorner.Parent = MainFrame
-
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(200, 0, 0)
-UIStroke.Thickness = 2
-UIStroke.Transparency = 0.3
-UIStroke.Parent = MainFrame
-
--- ЗАГОЛОВОК
-local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 45)
-TitleBar.BackgroundColor3 = Color3.fromRGB(30, 0, 0)
-TitleBar.BorderSizePixel = 0
-TitleBar.Parent = MainFrame
-
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 12)
-TitleCorner.Parent = TitleBar
-
-local TitleText = Instance.new("TextLabel")
-TitleText.Size = UDim2.new(1, -40, 1, 0)
-TitleText.Position = UDim2.new(0, 15, 0, 0)
-TitleText.BackgroundTransparency = 1
-TitleText.Text = "🔥 EXILE HUB — РЕЖИМ: БЕСПРЕДЕЛ"
-TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
-TitleText.Font = Enum.Font.GothamBlack
-TitleText.TextSize = 22
-TitleText.TextXAlignment = Enum.TextXAlignment.Left
-TitleText.Parent = TitleBar
-
-local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 35, 0, 35)
-CloseButton.Position = UDim2.new(1, -45, 0, 5)
-CloseButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-CloseButton.Text = "✕"
-CloseButton.TextColor3 = Color3.new(1,1,1)
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 24
-CloseButton.Parent = TitleBar
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 8)
-CloseCorner.Parent = CloseButton
-
-CloseButton.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-    Settings.MenuVisible = false
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = true
+    end
 end)
 
--- ВКЛАДКИ
-local TabFrame = Instance.new("Frame")
-TabFrame.Size = UDim2.new(1, 0, 0, 40)
-TabFrame.Position = UDim2.new(0, 0, 0, 45)
-TabFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-TabFrame.BorderSizePixel = 0
-TabFrame.Parent = MainFrame
-
-local Tabs = {"Главная", "Флинг/Кик", "ESP/Визуал", "Гравитация"}
-local TabButtons = {}
-
-local function SelectTab(tabName)
-    Settings.CurrentTab = tabName
-    for _, btn in pairs(TabButtons) do
-        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = false
     end
-    if TabButtons[tabName] then
-        TabButtons[tabName].BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+end)
+
+RunService.RenderStepped:Connect(function()
+    if Settings.Aimbot_Enabled and IsAiming then
+        local target = GetClosestEnemy()
+        if target then
+            local head = target.Character and target.Character:FindFirstChild("Head")
+            if head then
+                local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    MoveMouse(vec.X, vec.Y)
+                end
+            end
+        end
     end
-end
+end)
 
-for i, name in ipairs(Tabs) do
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 140, 0, 30)
-    btn.Position = UDim2.new(0, 10 + (i-1)*150, 0, 5)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-    btn.Text = name
-    btn.TextColor3 = Color3.new(1,1,1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 16
-    btn.Parent = TabFrame
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
-    btnCorner.Parent = btn
-    
-    TabButtons[name] = btn
-    btn.MouseButton1Click:Connect(function() SelectTab(name) end)
-end
+-- ===== МЕНЮ (DRAWING ИЛИ SCREENGUI) =====
+if DrawingSupported then
+    -- МЕНЮ ЧЕРЕЗ DRAWING (0 ИНСТАНСОВ)
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 30)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(250, 200)
+    bg.Position = Vector2.new(50, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
 
--- КОНТЕНТ
-local ContentFrame = Instance.new("ScrollingFrame")
-ContentFrame.Size = UDim2.new(1, -20, 1, -120)
-ContentFrame.Position = UDim2.new(0, 10, 0, 90)
-ContentFrame.BackgroundTransparency = 1
-ContentFrame.ScrollBarThickness = 8
-ContentFrame.ScrollBarImageColor3 = Color3.fromRGB(150, 0, 0)
-ContentFrame.CanvasSize = UDim2.new(0, 0, 2, 0)
-ContentFrame.Parent = MainFrame
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.new(1,1,0)
+    title.Position = Vector2.new(60, 55)
+    title.Text = "ZERO LEAK HUB"
+    title.Size = 18
+    title.ZIndex = 1000
 
--- =====================================================================
--- БЛОК 11: ФУНКЦИИ ИНТЕРФЕЙСА
--- =====================================================================
-local function CreateButton(parent, text, pos, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 180, 0, 40)
-    btn.Position = UDim2.new(0, pos.X, 0, pos.Y)
-    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1,1,1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 16
-    btn.Parent = parent
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 8)
-    btnCorner.Parent = btn
-    
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
+    local function addCheckbox(text, y, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, y)
+        box.Filled = true
+        box.ZIndex = 1000
 
-local function CreateSlider(parent, text, pos, getter, setter, min, max, format)
-    local bg = Instance.new("Frame")
-    bg.Size = UDim2.new(0, 200, 0, 50)
-    bg.Position = UDim2.new(0, pos.X, 0, pos.Y)
-    bg.BackgroundTransparency = 1
-    bg.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = text .. ": " .. string.format(format, getter())
-    label.TextColor3 = Color3.new(1,1,1)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 16
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = bg
-    
-    local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(1, 0, 0, 8)
-    slider.Position = UDim2.new(0, 0, 0, 30)
-    slider.BackgroundColor3 = Color3.fromRGB(60,60,60)
-    slider.Parent = bg
-    
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, y-2)
+        lbl.Text = text
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        return {box = box, lbl = lbl, y = y, get = getter, set = setter}
+    end
+
+    local items = {
+        addCheckbox("ESP", 80, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end),
+        addCheckbox("Aimbot", 110, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end),
+        addCheckbox("Team Check", 140, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v end),
+    }
+
+    local fovText = Drawing.new("Text")
+    fovText.Visible = true
+    fovText.Color = Color3.new(1,1,1)
+    fovText.Position = Vector2.new(60, 170)
+    fovText.Text = "FOV: " .. Settings.FOV
+    fovText.Size = 14
+    fovText.ZIndex = 1000
+
+    local fovMinus = Drawing.new("Square")
+    fovMinus.Visible = true
+    fovMinus.Color = Color3.fromRGB(60,60,60)
+    fovMinus.Size = Vector2.new(20,20)
+    fovMinus.Position = Vector2.new(160, 168)
+    fovMinus.Filled = true
+    fovMinus.ZIndex = 1000
+    local minusText = Drawing.new("Text")
+    minusText.Visible = true
+    minusText.Color = Color3.new(1,1,1)
+    minusText.Position = Vector2.new(166, 168)
+    minusText.Text = "-"
+    minusText.Size = 16
+    minusText.ZIndex = 1001
+
+    local fovPlus = Drawing.new("Square")
+    fovPlus.Visible = true
+    fovPlus.Color = Color3.fromRGB(60,60,60)
+    fovPlus.Size = Vector2.new(20,20)
+    fovPlus.Position = Vector2.new(185, 168)
+    fovPlus.Filled = true
+    fovPlus.ZIndex = 1000
+    local plusText = Drawing.new("Text")
+    plusText.Visible = true
+    plusText.Color = Color3.new(1,1,1)
+    plusText.Position = Vector2.new(191, 168)
+    plusText.Text = "+"
+    plusText.Size = 16
+    plusText.ZIndex = 1001
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 50 and m.X <= 300 and m.Y >= 50 and m.Y <= 220 then
+                for _, item in ipairs(items) do
+                    if m.Y >= item.y-6 and m.Y <= item.y+6 and m.X >= 60 and m.X <= 72 then
+                        local new = not item.get()
+                        item.set(new)
+                        item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
+                end
+                if m.X >= 160 and m.X <= 180 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.max(30, Settings.FOV - 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
+                end
+                if m.X >= 185 and m.X <= 205 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.min(300, Settings.FOV + 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
+                end
+            end
+        end
+    end)
+
+    -- Полное удаление меню при закрытии (в Drawing это не нужно, но добавим кнопку выхода)
+    local closeBtn = Drawing.new("Text")
+    closeBtn.Visible = true
+    closeBtn.Color = Color3.new(1,0,0)
+    closeBtn.Position = Vector2.new(280, 55)
+    closeBtn.Text = "X"
+    closeBtn.Size = 18
+    closeBtn.ZIndex = 1000
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 280 and m.X <= 295 and m.Y >= 55 and m.Y <= 70 then
+                bg.Visible = false
+                title.Visible = false
+                fovText.Visible = false
+                fovMinus.Visible = false
+                minusText.Visible = false
+                fovPlus.Visible = false
+                plusText.Visible = false
+                closeBtn.Visible = false
+                for _, item in ipairs(items) do
+                    item.box.Visible = false
+                    item.lbl.Visible = false
+                end
+                -- Отключаем ESP (удаляем все круги)
+                if DrawingSupported then
+                    for _, circle in pairs(ESP_Drawings) do
+                        circle:Remove()
+                    end
+                    ESP_Drawings = {}
+                else
+                    for p,_ in pairs(ESP_Billboards) do
+                        pcall(function() ESP_Billboards[p]:Destroy() end)
+                    end
+                    ESP_Billboards = {}
+                end
+            end
+        end
+    end)
+
+else
+    -- FALLBACK: МЕНЮ ЧЕРЕЗ SCREENGUI (С ПОЛНЫМ УНИЧТОЖЕНИЕМ)
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "Menu_" .. math.random(9999)
+    ScreenGui.Parent = CoreGui
+    if syn and syn.protect_gui then syn.protect_gui(ScreenGui) elseif protect_gui then protect_gui(ScreenGui) end
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 250, 0, 200)
+    MainFrame.Position = UDim2.new(0, 50, 0, 50)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    MainFrame.BackgroundTransparency = 0.1
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = MainFrame
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 35)
+    Title.BackgroundTransparency = 1
+    Title.Text = "ZERO LEAK HUB"
+    Title.TextColor3 = Color3.fromRGB(255,255,0)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 20
+    Title.Parent = MainFrame
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+    CloseBtn.Position = UDim2.new(1, -35, 0, 2)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(150,0,0)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.new(1,1,1)
+    CloseBtn.Font = Enum.Font.SourceSansBold
+    CloseBtn.TextSize = 20
+    CloseBtn.Parent = MainFrame
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 6)
+    CloseCorner.Parent = CloseBtn
+    CloseBtn.MouseButton1Click:Connect(function()
+        -- Полное уничтожение всего
+        if not DrawingSupported then
+            for p,_ in pairs(ESP_Billboards) do
+                pcall(function() ESP_Billboards[p]:Destroy() end)
+            end
+            ESP_Billboards = {}
+        end
+        ScreenGui:Destroy()
+    end)
+
+    local yPos = 45
+    local function CreateCheckbox(text, getter, setter)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, -20, 0, 25)
+        bg.Position = UDim2.new(0, 10, 0, yPos)
+        bg.BackgroundTransparency = 1
+        bg.Parent = MainFrame
+
+        local box = Instance.new("TextButton")
+        box.Size = UDim2.new(0, 20, 0, 20)
+        box.Position = UDim2.new(0, 0, 0.5, -10)
+        box.BackgroundColor3 = getter() and Color3.fromRGB(0,200,0) or Color3.fromRGB(80,80,80)
+        box.Text = ""
+        box.Parent = bg
+        local boxCorner = Instance.new("UICorner")
+        boxCorner.CornerRadius = UDim.new(0, 4)
+        boxCorner.Parent = box
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -30, 1, 0)
+        label.Position = UDim2.new(0, 30, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.new(1,1,1)
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 16
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = bg
+
+        box.MouseButton1Click:Connect(function()
+            local new = not getter()
+            setter(new)
+            box.BackgroundColor3 = new and Color3.fromRGB(0,200,0) or Color3.fromRGB(80,80,80)
+        end)
+        return yPos + 30
+    end
+
+    yPos = CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
+    yPos = CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v end)
+
+    local fovLabel = Instance.new("TextLabel")
+    fovLabel.Size = UDim2.new(1, -20, 0, 25)
+    fovLabel.Position = UDim2.new(0, 10, 0, yPos)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.Text = "FOV: " .. Settings.FOV
+    fovLabel.TextColor3 = Color3.new(1,1,1)
+    fovLabel.Font = Enum.Font.SourceSans
+    fovLabel.TextSize = 16
+    fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+    fovLabel.Parent = MainFrame
+    yPos = yPos + 30
+
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -20, 0, 8)
+    sliderBg.Position = UDim2.new(0, 10, 0, yPos)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    sliderBg.Parent = MainFrame
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(0, 4)
+    sliderCorner.Parent = sliderBg
+
     local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((getter() - min) / (max - min), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-    fill.Parent = slider
-    
+    fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0,200,255)
+    fill.Parent = sliderBg
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 4)
+    fillCorner.Parent = fill
+
     local dragging = false
     fill.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
         end
     end)
-    
+
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
         end
     end)
-    
+
     RunService.RenderStepped:Connect(function()
         if dragging then
             local mousePos = UserInputService:GetMouseLocation()
-            local absX = slider.AbsolutePosition.X
-            local absSizeX = slider.AbsoluteSize.X
+            local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
+            local absSizeX = sliderBg.AbsoluteSize.X
             local relX = math.clamp(mousePos.X - absX, 0, absSizeX)
             local percent = relX / absSizeX
-            local val = min + (max - min) * percent
-            setter(val)
-            fill.Size = UDim2.new((val - min) / (max - min), 0, 1, 0)
-            label.Text = text .. ": " .. string.format(format, val)
+            local value = math.floor(30 + (270 * percent))
+            Settings.FOV = math.clamp(value, 30, 300)
+            fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
+            fovLabel.Text = "FOV: " .. Settings.FOV
         end
     end)
 end
 
-local function CreatePlayerList(parent, pos)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 200, 0, 300)
-    frame.Position = UDim2.new(0, pos.X, 0, pos.Y)
-    frame.BackgroundColor3 = Color3.fromRGB(30,30,40)
-    frame.Parent = parent
-    
-    local list = Instance.new("ScrollingFrame")
-    list.Size = UDim2.new(1, -10, 1, -10)
-    list.Position = UDim2.new(0, 5, 0, 5)
-    list.BackgroundTransparency = 1
-    list.ScrollBarThickness = 6
-    list.CanvasSize = UDim2.new(0,0,2,0)
-    list.Parent = frame
-    
-    local updateList
-    updateList = function()
-        for _, v in pairs(list:GetChildren()) do
-            if v:IsA("TextButton") then v:Destroy() end
-        end
-        
-        local y = 0
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then
-                local btn = Instance.new("TextButton")
-                btn.Size = UDim2.new(1, -10, 0, 35)
-                btn.Position = UDim2.new(0, 5, 0, y)
-                btn.BackgroundColor3 = Color3.fromRGB(50,50,70)
-                btn.Text = p.Name
-                btn.TextColor3 = Color3.new(1,1,1)
-                btn.Font = Enum.Font.Gotham
-                btn.TextSize = 16
-                btn.Parent = list
-                
-                btn.MouseButton1Click:Connect(function()
-                    Settings.FlingTarget = p
-                end)
-                
-                y = y + 40
-            end
-        end
-        list.CanvasSize = UDim2.new(0,0,0, y + 10)
-    end
-    
-    Players.PlayerAdded:Connect(updateList)
-    Players.PlayerRemoving:Connect(updateList)
-    task.spawn(updateList)
-    
-    return frame
-end
-
--- =====================================================================
--- БЛОК 12: РЕНДЕР КОНТЕНТА
--- =====================================================================
-local function RenderContent()
-    for _, v in pairs(ContentFrame:GetChildren()) do
-        if v:IsA("Frame") or v:IsA("TextButton") or v:IsA("ScrollingFrame") then
-            v:Destroy()
-        end
-    end
-    
-    if Settings.CurrentTab == "Главная" then
-        CreateButton(ContentFrame, "🕊️ FLY: " .. (Settings.FlyEnabled and "ON" or "OFF"), Vector2.new(20, 20), ToggleFly)
-        CreateSlider(ContentFrame, "Скорость полёта", Vector2.new(20, 80), 
-            function() return Settings.FlySpeed end,
-            function(v) Settings.FlySpeed = v end, 20, 200, "%.0f")
-        
-        CreateButton(ContentFrame, "⚡ ФЛИНГ ЦЕЛИ", Vector2.new(20, 150), function()
-            if Settings.FlingTarget then
-                StartFling(Settings.FlingTarget)
-            end
-        end)
-        
-        CreateSlider(ContentFrame, "Мощь флинга", Vector2.new(20, 210),
-            function() return Settings.FlingPower end,
-            function(v) Settings.FlingPower = v end, 1000, 20000, "%.0f")
-        
-        CreateButton(ContentFrame, "🛑 СТОП ФЛИНГ", Vector2.new(20, 280), StopFling)
-        
-    elseif Settings.CurrentTab == "Флинг/Кик" then
-        CreatePlayerList(ContentFrame, Vector2.new(20, 20))
-        
-        CreateButton(ContentFrame, "💥 ФЛИНГ ВЫБРАННОГО", Vector2.new(250, 20), function()
-            if Settings.FlingTarget then
-                StartFling(Settings.FlingTarget)
-            end
-        end)
-        
-        CreateButton(ContentFrame, "👢 КИК ВЫБРАННОГО", Vector2.new(250, 80), function()
-            if Settings.FlingTarget then
-                KickPlayer(Settings.FlingTarget, "Изгнан EXILE HUB")
-            end
-        end)
-        
-        CreateButton(ContentFrame, "💀 КРАШ ВЫБРАННОГО", Vector2.new(250, 140), function()
-            if Settings.FlingTarget then
-                CrashPlayer(Settings.FlingTarget)
-            end
-        end)
-        
-    elseif Settings.CurrentTab == "ESP/Визуал" then
-        CreateButton(ContentFrame, "ESP: " .. (Settings.EspEnabled and "ON" or "OFF"), Vector2.new(20, 20), function()
-            Settings.EspEnabled = not Settings.EspEnabled
-            if Settings.EspEnabled then RefreshESP() else
-                for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
-            end
-        end)
-        
-    elseif Settings.CurrentTab == "Гравитация" then
-        CreateButton(ContentFrame, "🌍 ГРАВИТАЦИЯ: " .. (Settings.GravityEnabled and "КАБУМ" or "НОРМА"), Vector2.new(20, 20), ToggleGravity)
-        CreateSlider(ContentFrame, "Сила гравитации", Vector2.new(20, 80),
-            function() return Settings.GravityPower end,
-            function(v) Settings.GravityPower = v; if Settings.GravityEnabled then Workspace.Gravity = v end end, 1, 500, "%.0f")
-    end
-end
-
-SelectTab("Главная")
-ContentFrame.ChildAdded:Connect(RenderContent)
-ContentFrame.ChildRemoved:Connect(RenderContent)
-
--- =====================================================================
--- БЛОК 13: УПРАВЛЕНИЕ ПОЛЁТОМ
--- =====================================================================
-RunService.Heartbeat:Connect(function()
-    if Settings.FlyEnabled and LocalPlayer.Character then
-        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if root and Settings.FlyBody and Settings.FlyGyro then
-            local move = Vector3.new()
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0,1,0) end
-            
-            if move.Magnitude > 0 then move = move.Unit * Settings.FlySpeed end
-            Settings.FlyBody.Velocity = move
-            Settings.FlyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
-        end
-    end
-end)
-
--- =====================================================================
--- БЛОК 14: ГОРЯЧИЕ КЛАВИШИ
--- =====================================================================
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.F then ToggleFly() end
-    if input.KeyCode == Enum.KeyCode.G then ToggleGravity() end
-end)
-
--- =====================================================================
--- БЛОК 15: ФИНАЛ
--- =====================================================================
-RefreshESP()
-RenderContent()
-
-print([[
-╔══════════════════════════════════════════════════════════════════╗
-║     🔥 EXILE HUB v3.0.0 — РЕЖИМ: БЕСПРЕДЕЛ АКТИВИРОВАН 🔥       ║
-╠══════════════════════════════════════════════════════════════════╣
-║  🕊️  FLY: Кнопка F / В меню                                     ║
-║  ⚡  FLING: Выбери цель в списке → Нажми "ФЛИНГ"                ║
-║  👢  KICK: Выбери цель → Кик (работает ТОЛЬКО если у тебя админка)║
-║  💀  CRASH: Спавнит тысячи частей и звуков                      ║
-║  🌍  GRAVITY: Кнопка G / В меню (меняет граву на сервере)       ║
-║  👁️  ESP: Подсветка всех красными кругами                      ║
-║                                                                  ║
-║  ⚠️  ВНИМАНИЕ: Этот скрипт 100% нарушает ToS. Аккаунт будет     ║
-║     забанен при использовании в публичных серверах. Тебе плевать.║
-║     Я предупредил. Твори хаос.                                  ║
-╚══════════════════════════════════════════════════════════════════╝
-]])
+print("✅ ZERO LEAK HUB загружен. ESP через Drawing (0 объектов) — утечек памяти нет.")
+print("🎮 Удерживайте ПКМ для аима. FOV регулируется в меню.")
