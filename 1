@@ -27,12 +27,41 @@ local Settings = {
     ESP_Enabled = true,
     Aimbot_Enabled = true,
     TeamCheck = true,
+    VisibleCheck = true,   -- стрелять только если видим
+    AutoFire = true,
+    FastWalk_Enabled = true,
+    WalkSpeed = 32,
     FOV = 120,
 }
 
--- ===== ESP: ЖЁЛТЫЙ КРУГ НА ГОЛОВЕ =====
+-- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
+local IsAiming = false
+local CurrentTarget = nil
+local Dragging = false
+local DragStart, DragPos
 
+-- ===== FAST WALK =====
+local function UpdateWalkSpeed()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.WalkSpeed = Settings.FastWalk_Enabled and Settings.WalkSpeed or 16
+    end
+end
+
+-- отслеживаем персонажа игрока
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid")
+    UpdateWalkSpeed()
+end)
+
+if LocalPlayer.Character then
+    UpdateWalkSpeed()
+end
+
+-- ===== ESP =====
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -42,7 +71,7 @@ local function IsEnemy(p)
     return true
 end
 
-local function CreateESP(p)
+local function CreateESP(p, isTarget)
     if not Settings.ESP_Enabled then return end
     if not IsEnemy(p) then return end
 
@@ -77,7 +106,7 @@ local function CreateESP(p)
     circle.Size = UDim2.new(1, 0, 1, 0)
     circle.BackgroundTransparency = 1
     circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-    circle.ImageColor3 = Color3.fromRGB(255, 255, 0)
+    circle.ImageColor3 = isTarget and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(255, 255, 0)
     circle.ImageTransparency = 0.3
     circle.ScaleType = Enum.ScaleType.Fit
     circle.Parent = billboard
@@ -95,40 +124,44 @@ end
 local function RefreshAllESP()
     for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then CreateESP(p) end
+        if p ~= LocalPlayer then
+            CreateESP(p, false)
+        end
     end
 end
 
--- ===== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP =====
-local function onCharacterAdded(p, char)
-    if p == LocalPlayer then return end
-    task.wait(0.1)
-    CreateESP(p)
-end
-
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then CreateESP(p) end
-        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+-- обновление цвета цели (красный) и остальных (жёлтый)
+local function UpdateTargetESP()
+    for p, bill in pairs(ESP_Cache) do
+        if bill and bill:FindFirstChildOfClass("ImageLabel") then
+            local circle = bill:FindFirstChildOfClass("ImageLabel")
+            if circle then
+                if p == CurrentTarget and IsAiming then
+                    circle.ImageColor3 = Color3.fromRGB(255, 0, 0)
+                else
+                    circle.ImageColor3 = Color3.fromRGB(255, 255, 0)
+                end
+            end
+        end
     end
 end
 
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-end)
-
-Players.PlayerRemoving:Connect(RemoveESP)
-
--- ===== AIMBOT (INSTANT, NO LEGIT) =====
-local IsAiming = false
-
+-- ===== AIMBOT =====
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
+end
+
+local function IsVisible(character)
+    if not Settings.VisibleCheck then return true end
+    local head = character:FindFirstChild("Head")
+    if not head then return false end
+    local origin = Camera.CFrame.Position
+    local direction = head.Position - origin
+    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    return hit and hit:IsDescendantOf(character)
 end
 
 local function GetClosestToMouse()
@@ -138,7 +171,7 @@ local function GetClosestToMouse()
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            if not IsTeamMate(p) then
+            if not IsTeamMate(p) and IsVisible(p.Character) then
                 local head = p.Character:FindFirstChild("Head")
                 if head then
                     local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
@@ -169,6 +202,18 @@ local function MoveMouseInstant(targetX, targetY)
     end
 end
 
+local function ClickMouse()
+    if mouse1click then
+        mouse1click()
+    elseif syn and syn.input then
+        syn.input.Mouse1Click()
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, 0)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, 0)
+    end
+end
+
+-- управление ПКМ
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = true
@@ -178,21 +223,57 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = false
+        CurrentTarget = nil
+        UpdateTargetESP()
     end
 end)
 
+-- главный цикл
 RunService.RenderStepped:Connect(function()
+    -- быстрая ходьба (применяется, если персонаж зареспавнился)
+    UpdateWalkSpeed()
+
     if Settings.Aimbot_Enabled and IsAiming then
-        local target = GetClosestToMouse()
-        if target and target.Character and target.Character:FindFirstChild("Head") then
-            local head = target.Character.Head
+        CurrentTarget = GetClosestToMouse()
+        if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
+            local head = CurrentTarget.Character.Head
             local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
                 MoveMouseInstant(vec.X, vec.Y)
+                if Settings.AutoFire then
+                    ClickMouse()
+                end
             end
         end
+    else
+        CurrentTarget = nil
     end
+
+    UpdateTargetESP()
 end)
+
+-- ===== СОБЫТИЯ ИГРОКОВ =====
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    task.wait(0.1)
+    CreateESP(p, false)
+end
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then CreateESP(p, false) end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
 
 -- ===== МЕНЮ =====
 local ScreenGui = Instance.new("ScreenGui")
@@ -205,7 +286,7 @@ elseif protect_gui then
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 240, 0, 180)
+MainFrame.Size = UDim2.new(0, 260, 0, 340)
 MainFrame.Position = UDim2.new(0, 50, 0, 50)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.2
@@ -231,7 +312,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1,-40,1,0)
 Title.Position = UDim2.new(0,10,0,0)
 Title.BackgroundTransparency = 1
-Title.Text = "ESP + Aim (Instant)"
+Title.Text = "ESP + Aimbot + FastWalk"
 Title.TextColor3 = Color3.new(1,1,1)
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.SourceSansBold
@@ -248,15 +329,19 @@ CloseBtn.TextScaled = true
 CloseBtn.Font = Enum.Font.SourceSansBold
 CloseBtn.Parent = TopBar
 CloseBtn.MouseButton1Click:Connect(function()
+    -- при закрытии меню возвращаем нормальную скорость
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = 16
+    end
     ScreenGui:Destroy()
 end)
 
 local yPos = 40
 
-local function CreateCheckbox(text, getter, setter)
+local function CreateCheckbox(text, getter, setter, yOff)
     local bg = Instance.new("Frame")
     bg.Size = UDim2.new(1,-20,0,25)
-    bg.Position = UDim2.new(0,10,0,yPos)
+    bg.Position = UDim2.new(0,10,0,yPos + yOff)
     bg.BackgroundTransparency = 1
     bg.Parent = MainFrame
 
@@ -290,14 +375,24 @@ local function CreateCheckbox(text, getter, setter)
             if new then RefreshAllESP() else
                 for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
             end
+        elseif text == "Fast Walk" then
+            UpdateWalkSpeed()
         end
     end)
-    return yPos + 30
 end
 
-yPos = CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
-yPos = CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
-yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
+CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end, 0)
+yPos = yPos + 30
+CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end, 30)
+yPos = yPos + 30
+CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end, 60)
+yPos = yPos + 30
+CreateCheckbox("Visible Check", function() return Settings.VisibleCheck end, function(v) Settings.VisibleCheck = v end, 90)
+yPos = yPos + 30
+CreateCheckbox("Auto Fire", function() return Settings.AutoFire end, function(v) Settings.AutoFire = v end, 120)
+yPos = yPos + 30
+CreateCheckbox("Fast Walk", function() return Settings.FastWalk_Enabled end, function(v) Settings.FastWalk_Enabled = v; UpdateWalkSpeed() end, 150)
+yPos = yPos + 30
 
 -- FOV слайдер
 local fovFrame = Instance.new("Frame")
@@ -334,21 +429,21 @@ local fillCorner = Instance.new("UICorner")
 fillCorner.CornerRadius = UDim.new(0,4)
 fillCorner.Parent = fill
 
-local dragging = false
+local fovDragging = false
 fill.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
+        fovDragging = true
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
+        fovDragging = false
     end
 end)
 
 RunService.RenderStepped:Connect(function()
-    if dragging then
+    if fovDragging then
         local mousePos = UserInputService:GetMouseLocation()
         local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
         local absSizeX = sliderBg.AbsoluteSize.X
@@ -361,6 +456,71 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+yPos = yPos + 50
+
+-- WalkSpeed слайдер
+local wsFrame = Instance.new("Frame")
+wsFrame.Size = UDim2.new(1,-20,0,40)
+wsFrame.Position = UDim2.new(0,10,0,yPos)
+wsFrame.BackgroundTransparency = 1
+wsFrame.Parent = MainFrame
+
+local wsLabel = Instance.new("TextLabel")
+wsLabel.Size = UDim2.new(1,0,0,20)
+wsLabel.BackgroundTransparency = 1
+wsLabel.Text = "WalkSpeed: " .. Settings.WalkSpeed
+wsLabel.TextColor3 = Color3.new(1,1,1)
+wsLabel.Font = Enum.Font.SourceSans
+wsLabel.TextSize = 16
+wsLabel.Parent = wsFrame
+
+local wsSliderBg = Instance.new("Frame")
+wsSliderBg.Size = UDim2.new(1,0,0,10)
+wsSliderBg.Position = UDim2.new(0,0,0,25)
+wsSliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
+wsSliderBg.Parent = wsFrame
+
+local wsSliderCorner = Instance.new("UICorner")
+wsSliderCorner.CornerRadius = UDim.new(0,4)
+wsSliderCorner.Parent = wsSliderBg
+
+local wsFill = Instance.new("Frame")
+wsFill.Size = UDim2.new((Settings.WalkSpeed - 16) / 84, 0, 1, 0) -- от 16 до 100
+wsFill.BackgroundColor3 = Color3.fromRGB(0,150,255)
+wsFill.Parent = wsSliderBg
+
+local wsFillCorner = Instance.new("UICorner")
+wsFillCorner.CornerRadius = UDim.new(0,4)
+wsFillCorner.Parent = wsFill
+
+local wsDragging = false
+wsFill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        wsDragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        wsDragging = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if wsDragging then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absX, absY = wsSliderBg.AbsolutePosition.X, wsSliderBg.AbsolutePosition.Y
+        local absSizeX = wsSliderBg.AbsoluteSize.X
+        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+        local percent = relativeX / absSizeX
+        local value = math.floor(16 + (84 * percent)) -- 16-100
+        Settings.WalkSpeed = math.clamp(value, 16, 100)
+        wsFill.Size = UDim2.new((Settings.WalkSpeed - 16) / 84, 0, 1, 0)
+        wsLabel.Text = "WalkSpeed: " .. Settings.WalkSpeed
+        UpdateWalkSpeed()
+    end
+end)
+
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ ESP + Instant Aimbot loaded. Hold RMB to snap to head.")
+print("✅ ESP + Instant Aimbot + FastWalk. Hold RMB to aim, auto fire if enabled. Target ESP turns red.")
