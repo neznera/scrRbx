@@ -24,18 +24,107 @@ end
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
+    ESP_Enabled = true,
     Aimbot_Enabled = true,
     TeamCheck = true,
     FOV = 120,
 }
 
--- ===== ПЕРЕМЕННЫЕ =====
-local IsAiming = false
-local MenuOpen = true
-local Dragging = false
-local DragStart, DragPos
+-- ===== ESP: ЖЁЛТЫЙ КРУГ НА ГОЛОВЕ =====
+local ESP_Cache = setmetatable({}, {__mode = "v"})
 
--- ===== AIMBOT =====
+local function IsEnemy(p)
+    if p == LocalPlayer then return false end
+    if Settings.TeamCheck then
+        if not p.Team or not LocalPlayer.Team then return true end
+        return p.Team ~= LocalPlayer.Team
+    end
+    return true
+end
+
+local function CreateESP(p)
+    if not Settings.ESP_Enabled then return end
+    if not IsEnemy(p) then return end
+
+    local char = p.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    local hum = char:FindFirstChild("Humanoid")
+    if not head or not hum or hum.Health <= 0 then return end
+
+    if ESP_Cache[p] then
+        ESP_Cache[p]:Destroy()
+        ESP_Cache[p] = nil
+    end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = randomString(12)
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(1.5, 0, 1.5, 0)
+    billboard.StudsOffset = Vector3.new(0, 0.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.Parent = CoreGui
+
+    if syn and syn.protect_gui then
+        syn.protect_gui(billboard)
+    elseif protect_gui then
+        protect_gui(billboard)
+    end
+
+    local circle = Instance.new("ImageLabel")
+    circle.Name = randomString(8)
+    circle.Size = UDim2.new(1, 0, 1, 0)
+    circle.BackgroundTransparency = 1
+    circle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+    circle.ImageColor3 = Color3.fromRGB(255, 255, 0)
+    circle.ImageTransparency = 0.3
+    circle.ScaleType = Enum.ScaleType.Fit
+    circle.Parent = billboard
+
+    ESP_Cache[p] = billboard
+end
+
+local function RemoveESP(p)
+    if ESP_Cache[p] then
+        ESP_Cache[p]:Destroy()
+        ESP_Cache[p] = nil
+    end
+end
+
+local function RefreshAllESP()
+    for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then CreateESP(p) end
+    end
+end
+
+-- ===== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP =====
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    task.wait(0.1)
+    CreateESP(p)
+end
+
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then CreateESP(p) end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+end)
+
+Players.PlayerRemoving:Connect(RemoveESP)
+
+-- ===== AIMBOT (INSTANT, NO LEGIT) =====
+local IsAiming = false
+
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
@@ -67,7 +156,6 @@ local function GetClosestToMouse()
     return closest
 end
 
--- Мгновенное перемещение мыши (не легит)
 local function MoveMouseInstant(targetX, targetY)
     local current = UserInputService:GetMouseLocation()
     local delta = Vector2.new(targetX - current.X, targetY - current.Y)
@@ -81,7 +169,6 @@ local function MoveMouseInstant(targetX, targetY)
     end
 end
 
--- Управление клавишей (ПКМ)
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = true
@@ -94,7 +181,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Главный цикл
 RunService.RenderStepped:Connect(function()
     if Settings.Aimbot_Enabled and IsAiming then
         local target = GetClosestToMouse()
@@ -119,7 +205,7 @@ elseif protect_gui then
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 200, 0, 130)
+MainFrame.Size = UDim2.new(0, 240, 0, 180)
 MainFrame.Position = UDim2.new(0, 50, 0, 50)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
 MainFrame.BackgroundTransparency = 0.2
@@ -131,75 +217,150 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0,6)
 UICorner.Parent = MainFrame
 
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1,0,0,30)
+TopBar.BackgroundColor3 = Color3.fromRGB(20,20,20)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+
+local TopBarCorner = Instance.new("UICorner")
+TopBarCorner.CornerRadius = UDim.new(0,6)
+TopBarCorner.Parent = TopBar
+
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1,0,0,30)
+Title.Size = UDim2.new(1,-40,1,0)
+Title.Position = UDim2.new(0,10,0,0)
 Title.BackgroundTransparency = 1
-Title.Text = "Aimbot (Instant)"
+Title.Text = "ESP + Aim (Instant)"
 Title.TextColor3 = Color3.new(1,1,1)
+Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 18
-Title.Parent = MainFrame
+Title.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0,30,0,30)
+CloseBtn.Position = UDim2.new(1,-30,0,0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.new(1,0,0)
+CloseBtn.TextScaled = true
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.Parent = TopBar
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
 
 local yPos = 40
+
 local function CreateCheckbox(text, getter, setter)
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1,-20,0,25)
+    bg.Position = UDim2.new(0,10,0,yPos)
+    bg.BackgroundTransparency = 1
+    bg.Parent = MainFrame
+
     local box = Instance.new("TextButton")
     box.Size = UDim2.new(0,20,0,20)
-    box.Position = UDim2.new(0,10,0,yPos)
+    box.Position = UDim2.new(0,0,0.5,-10)
     box.BackgroundColor3 = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(60,60,60)
     box.Text = ""
-    box.Parent = MainFrame
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,-40,0,20)
-    lbl.Position = UDim2.new(0,40,0,yPos)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text
-    lbl.TextColor3 = Color3.new(1,1,1)
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Font = Enum.Font.SourceSans
-    lbl.TextSize = 16
-    lbl.Parent = MainFrame
+    box.Parent = bg
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0,4)
+    boxCorner.Parent = box
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,-30,1,0)
+    label.Position = UDim2.new(0,30,0,0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.new(1,1,1)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 16
+    label.Parent = bg
+
     box.MouseButton1Click:Connect(function()
         local new = not getter()
         setter(new)
         box.BackgroundColor3 = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(60,60,60)
+        if text == "ESP" then
+            if new then RefreshAllESP() else
+                for p,_ in pairs(ESP_Cache) do RemoveESP(p) end
+            end
+        end
     end)
-    yPos = yPos + 30
+    return yPos + 30
 end
 
-CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
-CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v end)
+yPos = CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
+yPos = CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
+
+-- FOV слайдер
+local fovFrame = Instance.new("Frame")
+fovFrame.Size = UDim2.new(1,-20,0,40)
+fovFrame.Position = UDim2.new(0,10,0,yPos)
+fovFrame.BackgroundTransparency = 1
+fovFrame.Parent = MainFrame
 
 local fovLabel = Instance.new("TextLabel")
-fovLabel.Size = UDim2.new(0, 80, 0, 25)
-fovLabel.Position = UDim2.new(0,10,0,yPos)
+fovLabel.Size = UDim2.new(1,0,0,20)
 fovLabel.BackgroundTransparency = 1
 fovLabel.Text = "FOV: " .. Settings.FOV
 fovLabel.TextColor3 = Color3.new(1,1,1)
 fovLabel.Font = Enum.Font.SourceSans
 fovLabel.TextSize = 16
-fovLabel.TextXAlignment = Enum.TextXAlignment.Left
-fovLabel.Parent = MainFrame
+fovLabel.Parent = fovFrame
 
-local fovMinus = Instance.new("TextButton")
-fovMinus.Size = UDim2.new(0,25,0,25)
-fovMinus.Position = UDim2.new(0,120,0,yPos)
-fovMinus.Text = "-"
-fovMinus.BackgroundColor3 = Color3.fromRGB(80,80,80)
-fovMinus.Parent = MainFrame
-fovMinus.MouseButton1Click:Connect(function()
-    Settings.FOV = math.max(30, Settings.FOV - 10)
-    fovLabel.Text = "FOV: " .. Settings.FOV
+local sliderBg = Instance.new("Frame")
+sliderBg.Size = UDim2.new(1,0,0,10)
+sliderBg.Position = UDim2.new(0,0,0,25)
+sliderBg.BackgroundColor3 = Color3.fromRGB(80,80,80)
+sliderBg.Parent = fovFrame
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(0,4)
+sliderCorner.Parent = sliderBg
+
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
+fill.BackgroundColor3 = Color3.fromRGB(0,150,255)
+fill.Parent = sliderBg
+
+local fillCorner = Instance.new("UICorner")
+fillCorner.CornerRadius = UDim.new(0,4)
+fillCorner.Parent = fill
+
+local dragging = false
+fill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+    end
 end)
 
-local fovPlus = Instance.new("TextButton")
-fovPlus.Size = UDim2.new(0,25,0,25)
-fovPlus.Position = UDim2.new(0,150,0,yPos)
-fovPlus.Text = "+"
-fovPlus.BackgroundColor3 = Color3.fromRGB(80,80,80)
-fovPlus.Parent = MainFrame
-fovPlus.MouseButton1Click:Connect(function()
-    Settings.FOV = math.min(300, Settings.FOV + 10)
-    fovLabel.Text = "FOV: " .. Settings.FOV
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
 end)
 
-print("✅ Aimbot (instant) loaded. Hold RMB to snap to head.")
+RunService.RenderStepped:Connect(function()
+    if dragging then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absX, absY = sliderBg.AbsolutePosition.X, sliderBg.AbsolutePosition.Y
+        local absSizeX = sliderBg.AbsoluteSize.X
+        local relativeX = math.clamp(mousePos.X - absX, 0, absSizeX)
+        local percent = relativeX / absSizeX
+        local value = math.floor(30 + (270 * percent))
+        Settings.FOV = math.clamp(value, 30, 300)
+        fill.Size = UDim2.new((Settings.FOV - 30) / 270, 0, 1, 0)
+        fovLabel.Text = "FOV: " .. Settings.FOV
+    end
+end)
+
+-- ===== ЗАПУСК =====
+RefreshAllESP()
+print("✅ ESP + Instant Aimbot loaded. Hold RMB to snap to head.")
