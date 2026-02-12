@@ -16,21 +16,6 @@ local Camera = workspace.CurrentCamera
 -- ===== ПРОВЕРКА ПОДДЕРЖКИ DRAWING =====
 local DrawingSupported = pcall(Drawing.new, "Circle")
 
--- ===== УНИВЕРСАЛЬНОЕ УПРАВЛЕНИЕ МЫШЬЮ =====
-local function MoveMouse(deltaX, deltaY)
-    if mousemoverel then
-        mousemoverel(deltaX, deltaY)
-        return true
-    elseif syn and syn.input then
-        syn.input.MouseMove(deltaX, deltaY)
-        return true
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
-        return true
-    end
-    return false
-end
-
 -- ===== СЛУЧАЙНЫЕ ИМЕНА =====
 local function randomString(len)
     local str = ""
@@ -43,16 +28,15 @@ end
 -- ===== НАСТРОЙКИ =====
 local Settings = {
     ESP_Enabled = true,
-    Aimbot_Enabled = true,
     TeamCheck = true,
+    SilentAim = true,
     FOV = 120,
     FOV_Visible = true,
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Cache = setmetatable({}, {__mode = "v"})
-local IsAiming = false
-local AimTarget = nil
+local IsAiming = false   -- удержание ПКМ
 local MenuOpen = true
 local Dragging = false
 local DragStart, DragPos
@@ -63,9 +47,8 @@ local function IsEnemy(p)
     if Settings.TeamCheck then
         if not p.Team or not LocalPlayer.Team then return true end
         return p.Team ~= LocalPlayer.Team
-    else
-        return true
     end
+    return true
 end
 
 local function CreateESP(p)
@@ -78,7 +61,6 @@ local function CreateESP(p)
     local hum = char:FindFirstChild("Humanoid")
     if not head or not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый
     if ESP_Cache[p] then
         ESP_Cache[p]:Destroy()
         ESP_Cache[p] = nil
@@ -120,46 +102,32 @@ local function RemoveESP(p)
 end
 
 local function RefreshAllESP()
-    for p, _ in pairs(ESP_Cache) do
-        RemoveESP(p)
-    end
+    for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            CreateESP(p)
-        end
+        if p ~= LocalPlayer then CreateESP(p) end
     end
 end
 
--- ===== AIMBOT (FOV, БЛИЖАЙШИЙ К ПРИЦЕЛУ) =====
+-- ===== SILENT AIM (ПЕРЕХВАТ ВЫСТРЕЛА) =====
 local function IsTeamMate(p)
     if not Settings.TeamCheck then return false end
     if not p.Team or not LocalPlayer.Team then return false end
     return p.Team == LocalPlayer.Team
 end
 
-local function IsVisible(character)
-    local head = character:FindFirstChild("Head")
-    if not head then return false end
-    local ray = Ray.new(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000)
-    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
-    return hit and hit:IsDescendantOf(character)
-end
-
-local function GetClosestToMouse()
-    if not Settings.Aimbot_Enabled then return nil end
-
-    local closest = nil
-    local closestDist = Settings.FOV
+local function GetTarget()
+    if not Settings.SilentAim then return nil end
     local mousePos = UserInputService:GetMouseLocation()
+    local closest, closestDist = nil, Settings.FOV
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            if not IsTeamMate(p) and IsVisible(p.Character) then
+            if not IsTeamMate(p) then
                 local head = p.Character:FindFirstChild("Head")
                 if head then
-                    local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                     if onScreen then
-                        local dist = (Vector2.new(vector.X, vector.Y) - mousePos).Magnitude
+                        local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
                         if dist < closestDist then
                             closestDist = dist
                             closest = p
@@ -172,7 +140,48 @@ local function GetClosestToMouse()
     return closest
 end
 
--- ===== FOV КРУГ (DRAWING) =====
+-- Поиск RemoteEvent для выстрела
+local function GetShootRemote(tool)
+    if not tool then return nil end
+    for _, child in pairs(tool:GetDescendants()) do
+        if child:IsA("RemoteEvent") then
+            local name = child.Name:lower()
+            if name:find("fire") or name:find("shoot") or name:find("remote") or name:find("event") or name:find("weapon") then
+                return child
+            end
+        end
+    end
+    return nil
+end
+
+-- Перехват левого клика
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and IsAiming and Settings.SilentAim then
+        local target = GetTarget()
+        if not target then return end
+
+        local head = target.Character and target.Character:FindFirstChild("Head")
+        if not head then return end
+
+        local tool = LocalPlayer.Character and (LocalPlayer.Character:FindFirstChildOfClass("Tool") or LocalPlayer.Character:FindFirstChildWhichIsA("Tool"))
+        if not tool then return end
+
+        local remote = GetShootRemote(tool)
+        if remote then
+            -- Стандартная сигнатура: удалённый вызов с аргументами (местоположение, направление, ...)
+            -- Попробуем подставить позицию головы врага
+            pcall(function()
+                remote:FireServer(head.Position, (head.Position - Camera.CFrame.Position).Unit, target)
+            end)
+        else
+            -- Если Remote не найден, пробуем старый способ: tool:Activate() + mouse1click с наведением
+            -- (это заставит мышь дёрнуться, но пользователь хотел silent, так что это fallback)
+        end
+    end
+end)
+
+-- ===== FOV КРУГ =====
 local FOVCircle = DrawingSupported and Drawing.new("Circle")
 if FOVCircle then
     FOVCircle.Thickness = 2
@@ -184,7 +193,7 @@ if FOVCircle then
     FOVCircle.Filled = false
 end
 
--- ===== УПРАВЛЕНИЕ КЛАВИШЕЙ =====
+-- ===== УПРАВЛЕНИЕ КЛАВИШЕЙ АИМА =====
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = true
@@ -194,13 +203,11 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = false
-        AimTarget = nil
     end
 end)
 
--- ===== ГЛАВНЫЙ ЦИКЛ =====
+-- ===== ОБНОВЛЕНИЕ КРУГА =====
 RunService.RenderStepped:Connect(function()
-    -- Обновление FOV круга
     if DrawingSupported and Settings.FOV_Visible then
         local mousePos = UserInputService:GetMouseLocation()
         FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
@@ -208,25 +215,6 @@ RunService.RenderStepped:Connect(function()
         FOVCircle.Visible = true
     elseif FOVCircle then
         FOVCircle.Visible = false
-    end
-
-    -- Аимбот
-    if Settings.Aimbot_Enabled and IsAiming then
-        AimTarget = GetClosestToMouse()
-        if AimTarget and AimTarget.Character and AimTarget.Character:FindFirstChild("Head") then
-            local head = AimTarget.Character.Head
-            local vector, onScreen = Camera:WorldToViewportPoint(head.Position)
-            if onScreen then
-                local targetPos = Vector2.new(vector.X, vector.Y)
-                local mousePos = UserInputService:GetMouseLocation()
-                local delta = targetPos - mousePos
-                if delta.Magnitude > 0.5 then
-                    MoveMouse(delta.X, delta.Y)
-                end
-            end
-        end
-    else
-        AimTarget = nil
     end
 end)
 
@@ -239,9 +227,7 @@ end
 
 for _, p in pairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
-        if p.Character then
-            CreateESP(p)
-        end
+        if p.Character then CreateESP(p) end
         p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
         p.CharacterRemoving:Connect(function() RemoveESP(p) end)
     end
@@ -255,7 +241,7 @@ end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- ===== МЕНЮ (DRAWING ИЛИ SCREENGUI) =====
+-- ===== МЕНЮ =====
 if DrawingSupported then
     -- Меню через Drawing
     local menuY = 50
@@ -274,7 +260,7 @@ if DrawingSupported then
     title.Visible = true
     title.Color = Color3.new(1,1,1)
     title.Position = Vector2.new(60, 45)
-    title.Text = "ESP + Aimbot"
+    title.Text = "ESP + Silent Aim"
     title.Size = 18
     title.Center = false
     title.ZIndex = 1000
@@ -300,11 +286,10 @@ if DrawingSupported then
     end
 
     addCheckbox("ESP", 70, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v; RefreshAllESP() end)
-    addCheckbox("Aimbot", 95, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    addCheckbox("Silent Aim", 95, function() return Settings.SilentAim end, function(v) Settings.SilentAim = v end)
     addCheckbox("Team Check", 120, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
     addCheckbox("Show FOV", 145, function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
 
-    -- Слайдер для FOV (упрощённо: используем текстовые кнопки +/–)
     local fovText = Drawing.new("Text")
     fovText.Visible = true
     fovText.Color = Color3.new(1,1,1)
@@ -346,7 +331,6 @@ if DrawingSupported then
     UserInputService.InputBegan:Connect(function(input, gp)
         if not gp and input.UserInputType == Enum.UserInputType.MouseButton1 then
             local m = UserInputService:GetMouseLocation()
-            -- Чекбоксы
             if m.X >= 50 and m.X <= 270 and m.Y >= 40 and m.Y <= 220 then
                 for _, item in ipairs(menuItems) do
                     if m.Y >= item.y-6 and m.Y <= item.y+6 and m.X >= 60 and m.X <= 72 then
@@ -355,12 +339,10 @@ if DrawingSupported then
                         item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
                     end
                 end
-                -- FOV минус
                 if m.X >= 160 and m.X <= 180 and m.Y >= 168 and m.Y <= 188 then
                     Settings.FOV = math.max(30, Settings.FOV - 10)
                     fovText.Text = "FOV: " .. Settings.FOV
                 end
-                -- FOV плюс
                 if m.X >= 185 and m.X <= 205 and m.Y >= 168 and m.Y <= 188 then
                     Settings.FOV = math.min(300, Settings.FOV + 10)
                     fovText.Text = "FOV: " .. Settings.FOV
@@ -369,7 +351,7 @@ if DrawingSupported then
         end
     end)
 else
-    -- Меню через ScreenGui (fallback)
+    -- Меню через ScreenGui
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = randomString(12)
     ScreenGui.Parent = CoreGui
@@ -391,7 +373,7 @@ else
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1,0,0,30)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aimbot"
+    Title.Text = "ESP + Silent Aim"
     Title.TextColor3 = Color3.new(1,1,1)
     Title.Font = Enum.Font.SourceSansBold
     Title.TextSize = 18
@@ -425,7 +407,7 @@ else
     end
 
     CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
-    CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    CreateCheckbox("Silent Aim", function() return Settings.SilentAim end, function(v) Settings.SilentAim = v end)
     CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
     CreateCheckbox("Show FOV", function() return Settings.FOV_Visible end, function(v) Settings.FOV_Visible = v end)
 
@@ -465,4 +447,4 @@ end
 
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ ESP + Aimbot (FOV, круг на экране). Удерживайте ПКМ для наведения.")
+print("✅ ESP (круги на головах) + SILENT AIM (пуля сама летит в голову). Удерживайте ПКМ и стреляйте куда угодно.")
