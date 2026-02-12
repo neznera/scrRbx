@@ -13,9 +13,6 @@ end
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ========== ПРОВЕРКА ПОДДЕРЖКИ DRAWING ==========
-local DrawingSupported = pcall(Drawing.new, "Square")
-
 -- ========== УНИВЕРСАЛЬНОЕ УПРАВЛЕНИЕ МЫШЬЮ ==========
 local function MoveMouse(deltaX, deltaY)
     if mousemoverel then
@@ -57,10 +54,9 @@ end
 
 -- ========== НАСТРОЙКИ ==========
 local Settings = {
-    -- ESP
+    -- ESP (Highlight)
     ESP_Enabled = true,
-    ESP_Transparency = 0.4,
-    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый
+    ESP_Color = Color3.fromRGB(255, 255, 0),  -- жёлтый для врагов
 
     -- Aimbot
     Aimbot_Enabled = true,
@@ -81,8 +77,7 @@ local Settings = {
 }
 
 -- ========== ПЕРЕМЕННЫЕ ==========
-local ESP_3D_Cache = setmetatable({}, {__mode = "v"})  -- для 3D боксов
-local ESP_2D_Cache = {}                               -- для Drawing боксов (части)
+local HighlightCache = setmetatable({}, {__mode = "v"})  -- для Highlight
 local IsKeyHolding = false
 local AimTarget = nil
 local LastShotTime = 0
@@ -94,11 +89,11 @@ local DragStart, DragPos
 local LastRecoilReset = 0
 local LastFastBulletApply = 0
 
--- ========== FAST BULLETS (УСКОРЕНИЕ ПУЛЬ) ==========
+-- ========== FAST BULLETS ==========
 local function ApplyFastBullets()
     if not Settings.FastBullets_Enabled then return end
     local now = tick()
-    if now - LastFastBulletApply < 0.2 then return end  -- не спамим
+    if now - LastFastBulletApply < 0.2 then return end
 
     local character = LocalPlayer.Character
     if not character then return end
@@ -112,7 +107,6 @@ local function ApplyFastBullets()
 
     for _, propName in ipairs(velocityProps) do
         pcall(function()
-            -- Прямое свойство
             if tool[propName] ~= nil then
                 if type(tool[propName]) == "number" then
                     tool[propName] = tool[propName] * Settings.FastBullets_Multiplier
@@ -120,7 +114,6 @@ local function ApplyFastBullets()
                     tool[propName].Value = tool[propName].Value * Settings.FastBullets_Multiplier
                 end
             end
-            -- В дочерних объектах
             for _, child in pairs(tool:GetDescendants()) do
                 if child:IsA("Part") or child:IsA("MeshPart") then
                     if child[propName] ~= nil then
@@ -162,195 +155,129 @@ local function ApplyNoRecoil()
     LastRecoilReset = now
 end
 
--- ========== ESP (2D DRAWING) НА ВСЕ ЧАСТИ ==========
-if DrawingSupported then
-    -- Очистка при выходе игрока
-    Players.PlayerRemoving:Connect(function(p)
-        if ESP_2D_Cache[p] then
-            for _, box in pairs(ESP_2D_Cache[p]) do
-                box:Remove()
-            end
-            ESP_2D_Cache[p] = nil
-        end
-    end)
+-- ========== ESP (HIGHLIGHT) ==========
+-- Подсвечивает ТОЛЬКО ВРАГОВ, видно сквозь стены, цвет жёлтый
+local function IsEnemy(p)
+    if p == LocalPlayer then return false end
+    if Settings.Aimbot_TeamCheck then
+        -- если включена проверка тимы, то враги — те, у кого команда отличается
+        if not p.Team or not LocalPlayer.Team then return true end
+        return p.Team ~= LocalPlayer.Team
+    else
+        -- если TeamCheck выключен — все игроки считаются врагами
+        return true
+    end
+end
 
-    local function UpdateDrawingESP()
-        if not Settings.ESP_Enabled then
-            for _, boxes in pairs(ESP_2D_Cache) do
-                for _, box in pairs(boxes) do
-                    box.Visible = false
-                end
-            end
-            return
-        end
+local function CreateHighlight(p)
+    if not Settings.ESP_Enabled then return end
+    if not IsEnemy(p) then return end  -- только враги
 
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-                local char = p.Character
-                local parts = {}
-                -- Собираем все видимые части
-                for _, part in pairs(char:GetChildren()) do
-                    if part:IsA("BasePart") and part.Transparency < 1 then
-                        table.insert(parts, part)
-                    end
-                end
+    local char = p.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return end
 
-                -- Создаём или обновляем боксы для каждой части
-                if not ESP_2D_Cache[p] then
-                    ESP_2D_Cache[p] = {}
-                end
-                local boxes = ESP_2D_Cache[p]
-
-                -- Делаем все боксы невидимыми, потом покажем нужные
-                for _, box in pairs(boxes) do
-                    box.Visible = false
-                end
-
-                for i, part in ipairs(parts) do
-                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen then
-                        -- Размер бокса пропорционален размеру части и расстоянию
-                        local dist = (Camera.CFrame.Position - part.Position).Magnitude
-                        local scale = math.clamp(300 / dist, 0.5, 2)
-                        local width = part.Size.X * 40 * scale
-                        local height = part.Size.Y * 40 * scale
-                        local x = pos.X - width/2
-                        local y = pos.Y - height/2
-
-                        if not boxes[i] then
-                            boxes[i] = Drawing.new("Square")
-                            boxes[i].Thickness = 2
-                            boxes[i].Filled = false
-                            boxes[i].ZIndex = 5
-                        end
-                        local box = boxes[i]
-                        box.Visible = true
-                        box.Size = Vector2.new(width, height)
-                        box.Position = Vector2.new(x, y)
-                        box.Color = Settings.ESP_Color
-                        box.Transparency = Settings.ESP_Transparency
-                    end
-                end
-            else
-                if ESP_2D_Cache[p] then
-                    for _, box in pairs(ESP_2D_Cache[p]) do
-                        box.Visible = false
-                    end
-                end
-            end
-        end
+    -- Удаляем старый Highlight, если есть
+    if HighlightCache[p] and HighlightCache[p].Highlight then
+        HighlightCache[p].Highlight:Destroy()
+        HighlightCache[p] = nil
     end
 
-    RunService.RenderStepped:Connect(UpdateDrawingESP)
-else
-    -- ========== ESP (3D) НА ВСЕ ЧАСТИ ==========
-    print("⚠️ Drawing не поддерживается, использую 3D боксы на каждую часть")
-    local ESP_Folder = Instance.new("Folder")
-    ESP_Folder.Name = "ESP_" .. randomString(6)
-    ESP_Folder.Parent = CoreGui
+    -- Создаём новый Highlight
+    local highlight = Instance.new("Highlight")
+    highlight.Name = randomString(12)
+    highlight.Adornee = char
+    -- Настройки: только обводка (FillTransparency = 1), Outline цвет = жёлтый
+    highlight.FillTransparency = 1      -- без заливки
+    highlight.OutlineColor = Settings.ESP_Color
+    highlight.OutlineTransparency = 0   -- непрозрачная обводка
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop  -- видно сквозь стены
+    highlight.Parent = CoreGui
 
-    function CreateESP(p)
-        if not Settings.ESP_Enabled then return end
-        local char = p.Character
-        if not char then return end
-        local hum = char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then return end
-
-        local container = Instance.new("Folder")
-        container.Name = randomString(12)
-        container.Parent = ESP_Folder
-        if syn and syn.protect_gui then syn.protect_gui(container) elseif protect_gui then protect_gui(container) end
-
-        local adornments = {}
-        local function addBoxes()
-            for _, part in pairs(char:GetChildren()) do
-                if part:IsA("BasePart") and part.Transparency < 1 then
-                    local box = Instance.new("BoxHandleAdornment")
-                    box.Name = randomString(8)
-                    box.Adornee = part
-                    box.AlwaysOnTop = true
-                    box.ZIndex = 10
-                    box.Size = part.Size * 1.1
-                    box.Transparency = Settings.ESP_Transparency
-                    box.Color = BrickColor.new(Settings.ESP_Color)
-                    box.Parent = container
-                    adornments[part] = box
-                end
-            end
-        end
-        addBoxes()
-
-        local connection
-        connection = char.ChildAdded:Connect(function(child)
-            if child:IsA("BasePart") and child.Transparency < 1 then
-                local box = Instance.new("BoxHandleAdornment")
-                box.Name = randomString(8)
-                box.Adornee = child
-                box.AlwaysOnTop = true
-                box.ZIndex = 10
-                box.Size = child.Size * 1.1
-                box.Transparency = Settings.ESP_Transparency
-                box.Color = BrickColor.new(Settings.ESP_Color)
-                box.Parent = container
-                adornments[child] = box
-            end
-        end)
-
-        ESP_3D_Cache[p] = {
-            Container = container,
-            Connections = {connection},
-        }
+    if syn and syn.protect_gui then
+        syn.protect_gui(highlight)
+    elseif protect_gui then
+        protect_gui(highlight)
     end
 
-    function RemoveESP(p)
-        if ESP_3D_Cache[p] then
-            for _, conn in pairs(ESP_3D_Cache[p].Connections) do conn:Disconnect() end
-            if ESP_3D_Cache[p].Container then ESP_3D_Cache[p].Container:Destroy() end
-            ESP_3D_Cache[p] = nil
+    HighlightCache[p] = {
+        Highlight = highlight,
+        Character = char,
+    }
+end
+
+local function RemoveHighlight(p)
+    if HighlightCache[p] and HighlightCache[p].Highlight then
+        HighlightCache[p].Highlight:Destroy()
+        HighlightCache[p] = nil
+    end
+end
+
+local function UpdateHighlightColor(p)
+    if not Settings.ESP_Enabled then
+        RemoveHighlight(p)
+        return
+    end
+    if not IsEnemy(p) then
+        RemoveHighlight(p)
+        return
+    end
+    -- Если враг, но подсветки нет — создаём
+    if not HighlightCache[p] then
+        CreateHighlight(p)
+    else
+        -- Обновляем цвет, если изменился
+        local highlight = HighlightCache[p].Highlight
+        if highlight then
+            highlight.OutlineColor = Settings.ESP_Color
         end
     end
+end
 
-    function RefreshAllESP()
-        for p, _ in pairs(ESP_3D_Cache) do RemoveESP(p) end
-        for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then CreateESP(p) end
-        end
+local function RefreshAllESP()
+    for p, _ in pairs(HighlightCache) do
+        RemoveHighlight(p)
     end
-
-    function UpdateESPTransparency()
-        for p, data in pairs(ESP_3D_Cache) do
-            if data.Container then
-                for _, child in pairs(data.Container:GetChildren()) do
-                    if child:IsA("BoxHandleAdornment") then
-                        child.Transparency = Settings.ESP_Transparency
-                    end
-                end
-            end
-        end
-    end
-
-    local function onCharacterAdded(p, char)
-        if p == LocalPlayer then return end
-        RemoveESP(p)
-        CreateESP(p)
-    end
-
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer then
-            if p.Character then CreateESP(p) end
-            p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-            p.CharacterRemoving:Connect(function() RemoveESP(p) end)
+            CreateHighlight(p)
         end
     end
-
-    Players.PlayerAdded:Connect(function(p)
-        if p == LocalPlayer then return end
-        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
-        p.CharacterRemoving:Connect(function() RemoveESP(p) end)
-    end)
-
-    Players.PlayerRemoving:Connect(RemoveESP)
 end
+
+-- ========== СОБЫТИЯ ИГРОКОВ ДЛЯ ESP ==========
+local function onCharacterAdded(p, char)
+    if p == LocalPlayer then return end
+    -- Небольшая задержка, чтобы персонаж полностью загрузился
+    task.wait(0.1)
+    CreateHighlight(p)
+end
+
+local function onCharacterRemoving(p, char)
+    RemoveHighlight(p)
+end
+
+-- Подписка на существующих игроков
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        if p.Character then
+            CreateHighlight(p)
+        end
+        p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+        p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
+    end
+end
+
+-- Подписка на новых игроков
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return end
+    p.CharacterAdded:Connect(function(char) onCharacterAdded(p, char) end)
+    p.CharacterRemoving:Connect(function(char) onCharacterRemoving(p, char) end)
+end)
+
+-- Очистка при выходе игрока
+Players.PlayerRemoving:Connect(RemoveHighlight)
 
 -- ========== AIMBOT LOGIC ==========
 local function IsTeamMate(p)
@@ -456,7 +383,6 @@ RunService.RenderStepped:Connect(function()
         if onScreen then
             local targetPos = Vector2.new(vector.X, vector.Y)
 
-            -- Move mouse (если не Silent Aim)
             if not Settings.Aimbot_SilentAim then
                 local currentPos = UserInputService:GetMouseLocation()
                 local delta = targetPos - currentPos
@@ -465,7 +391,6 @@ RunService.RenderStepped:Connect(function()
                 end
             end
 
-            -- Auto Fire / Rapid Fire
             if Settings.Aimbot_AutoFire or Settings.Aimbot_RapidFire then
                 if now - LastShotTime >= Settings.Aimbot_RapidFireDelay then
                     ClickMouse()
@@ -490,7 +415,7 @@ local function CreateMenu()
 
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = randomString(8)
-    MainFrame.Size = UDim2.new(0, 280, 0, 650)
+    MainFrame.Size = UDim2.new(0, 280, 0, 600)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     MainFrame.BackgroundTransparency = 0.2
@@ -516,7 +441,7 @@ local function CreateMenu()
     Title.Size = UDim2.new(1, -40, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ESP + Aim God (FULL)"
+    Title.Text = "ESP + Aim God (HIGHLIGHT)"
     Title.TextColor3 = Color3.new(1, 1, 1)
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Font = Enum.Font.SourceSansBold
@@ -560,7 +485,7 @@ local function CreateMenu()
         end
     end)
 
-    -- ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+    -- ===== ЭЛЕМЕНТЫ МЕНЮ =====
     local yPos = 40
 
     local function CreateCheckbox(parent, text, yPos, getter, setter)
@@ -596,6 +521,10 @@ local function CreateMenu()
             local new = not getter()
             setter(new)
             box.BackgroundColor3 = new and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(60, 60, 60)
+            -- При изменении ESP_Enabled обновляем подсветку
+            if text == "ESP Enabled" then
+                RefreshAllESP()
+            end
         end)
     end
 
@@ -729,16 +658,13 @@ local function CreateMenu()
     end
 
     -- === ПОСТРОЕНИЕ МЕНЮ ===
-    CreateCheckbox(MainFrame, "ESP Enabled", yPos, 
+    CreateCheckbox(MainFrame, "ESP Enabled", yPos,
         function() return Settings.ESP_Enabled end,
         function(v) Settings.ESP_Enabled = v end)
     yPos = yPos + 35
 
-    CreateSlider(MainFrame, "ESP Transparency", yPos,
-        function() return Settings.ESP_Transparency end,
-        function(v) Settings.ESP_Transparency = v end,
-        0, 1, "%.1f")
-    yPos = yPos + 50
+    -- Цвет ESP фиксирован жёлтый, можно добавить выбор цвета, но по запросу оставим
+    yPos = yPos + 5
 
     CreateCheckbox(MainFrame, "Aimbot Enabled", yPos,
         function() return Settings.Aimbot_Enabled end,
@@ -759,7 +685,10 @@ local function CreateMenu()
 
     CreateCheckbox(MainFrame, "Team Check", yPos,
         function() return Settings.Aimbot_TeamCheck end,
-        function(v) Settings.Aimbot_TeamCheck = v end)
+        function(v)
+            Settings.Aimbot_TeamCheck = v
+            RefreshAllESP()  -- обновить подсветку при изменении TeamCheck
+        end)
     yPos = yPos + 35
 
     CreateCheckbox(MainFrame, "Wallbang", yPos,
@@ -809,7 +738,7 @@ local function CreateMenu()
     RefreshBtn.Size = UDim2.new(1, -20, 0, 30)
     RefreshBtn.Position = UDim2.new(0, 10, 0, yPos)
     RefreshBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-    RefreshBtn.Text = "REFRESH ESP (3D MODE)"
+    RefreshBtn.Text = "REFRESH HIGHLIGHT"
     RefreshBtn.TextColor3 = Color3.new(1, 1, 1)
     RefreshBtn.Font = Enum.Font.SourceSansBold
     RefreshBtn.TextSize = 16
@@ -819,16 +748,10 @@ local function CreateMenu()
     BtnCorner.CornerRadius = UDim.new(0, 6)
     BtnCorner.Parent = RefreshBtn
 
-    RefreshBtn.MouseButton1Click:Connect(function()
-        if not DrawingSupported then
-            RefreshAllESP()
-        end
-    end)
+    RefreshBtn.MouseButton1Click:Connect(RefreshAllESP)
 end
 
 -- ========== ЗАПУСК ==========
 CreateMenu()
-if not DrawingSupported then
-    RefreshAllESP()
-end
-print("✅ ESP на все части + Aimbot + Fast Bullets + Rapid Fire + No Recoil. Удерживайте ПКМ для наведения.")
+RefreshAllESP()
+print("✅ ESP через Highlight (только враги, жёлтая обводка) + Aimbot + Fast Bullets. Удерживайте ПКМ.")
