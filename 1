@@ -1,8 +1,8 @@
 --[[
-    ESP (все части, пересоздание каждый кадр) + Aimbot (тело, ПКМ, FOV)
-    - ESP: жёлтые рамки на все BasePart врагов.
-    - Aimbot: при удержании ПКМ наводит на корпус ближайшего в FOV.
-    - Настройки: TeamCheck, FOV, включение аима (можно менять в коде).
+    ESP (жёлтые рамки) + Aimbot (автоматически на голову, без удержания, большой FOV)
+    - ESP: рамки на все BasePart врагов (обновляются каждый кадр).
+    - Aimbot: постоянно наводит мышь на голову ближайшего врага в FOV.
+    - Настройки: TeamCheck, FOV (можно менять ниже).
 ]]
 
 local Players = game:GetService("Players")
@@ -20,19 +20,18 @@ local Camera = workspace.CurrentCamera
 local Settings = {
     -- ESP
     ESP_Enabled = true,
+
     -- Aimbot
-    Aimbot_Enabled = true,
-    TeamCheck = true,        -- true = не аимить союзников, false = всех
-    FOV = 200,               -- радиус в пикселях на экране
-    AimKey = Enum.UserInputType.MouseButton2, -- ПКМ
+    Aimbot_Enabled = true,      -- true = аим всегда активен
+    TeamCheck = true,           -- true = не целиться в союзников
+    FOV = 2000,                 -- радиус в пикселях на экране (2000 покрывает почти весь экран)
+    AimAtHead = true,           -- true = целиться в голову, false = в корпус (запасной вариант)
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Folder = Instance.new("Folder")
 ESP_Folder.Name = "ESP_Container"
 ESP_Folder.Parent = CoreGui
-
-local IsAiming = false
 
 -- ===== ФУНКЦИЯ ДВИЖЕНИЯ МЫШИ =====
 local function MoveMouse(targetX, targetY)
@@ -93,11 +92,11 @@ local function UpdateESP()
     end
 end
 
--- ===== AIMBOT: ПОИСК ЦЕЛИ =====
+-- ===== ПОИСК ЦЕЛИ (ближайший враг в FOV) =====
 local function GetClosestEnemyInFOV()
     local mousePos = UserInputService:GetMouseLocation()
     local closestPlayer = nil
-    local closestDist = Settings.FOV -- радиус в пикселях
+    local closestDist = Settings.FOV
 
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
@@ -105,18 +104,25 @@ local function GetClosestEnemyInFOV()
             if char then
                 local hum = char:FindFirstChild("Humanoid")
                 if hum and hum.Health > 0 then
-                    local targetPart = 
-                        char:FindFirstChild("HumanoidRootPart") or 
-                        char:FindFirstChild("Torso") or 
-                        char:FindFirstChild("UpperTorso") or
-                        char:FindFirstChild("Head")
+                    -- Определяем целевую часть
+                    local targetPart
+                    if Settings.AimAtHead then
+                        targetPart = char:FindFirstChild("Head")  -- сначала голова
+                    end
+                    if not targetPart then  -- если головы нет или AimAtHead = false
+                        targetPart = char:FindFirstChild("HumanoidRootPart") or
+                                     char:FindFirstChild("Torso") or
+                                     char:FindFirstChild("UpperTorso") or
+                                     char:FindFirstChild("Head")  -- на всякий случай
+                    end
+
                     if targetPart then
                         local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                         if onScreen then
                             local dist = (Vector2.new(vec.X, vec.Y) - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
                             if dist < closestDist then
                                 closestDist = dist
-                                closestPlayer = {player=player, targetPart=targetPart}
+                                closestPlayer = {player = player, targetPart = targetPart}
                             end
                         end
                     end
@@ -127,7 +133,7 @@ local function GetClosestEnemyInFOV()
     return closestPlayer
 end
 
--- ===== ИТОГОВАЯ функция наведения =====
+-- ===== НАВЕДЕНИЕ =====
 local function AimAtTarget(targetPart)
     if not targetPart then return end
     local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
@@ -136,26 +142,13 @@ local function AimAtTarget(targetPart)
     end
 end
 
--- ===== УПРАВЛЕНИЕ АИМОМ =====
-UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.UserInputType == Settings.AimKey then
-        IsAiming = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Settings.AimKey then
-        IsAiming = false
-    end
-end)
-
--- ===== ГЛАВНЫЙ ЦИКЛ =====
+-- ===== ГЛАВНЫЙ ЦИКЛ (работает постоянно) =====
 RunService.RenderStepped:Connect(function()
     -- Обновляем ESP
     UpdateESP()
 
-    -- Работа аима
-    if IsAiming and Settings.Aimbot_Enabled then
+    -- Аим всегда активен (без удержания кнопки)
+    if Settings.Aimbot_Enabled then
         local targetData = GetClosestEnemyInFOV()
         if targetData and targetData.targetPart then
             AimAtTarget(targetData.targetPart)
@@ -163,4 +156,4 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
-print("✅ ESP + Aimbot загружены. Удерживай ПКМ для наведения. Настройки: TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV)
+print("✅ Автоматический Aimbot (голова) + ESP загружены. TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV)
