@@ -1,8 +1,9 @@
 --[[
-    ESP (подсветка всех частей тела, динамическое обновление) + Aimbot (тело, с настраиваемым FOV)
-    - Рамки на все части (BoxHandleAdornment), жёлтые, добавляются автоматически при появлении новых частей.
-    - Аимбот при удержании ПКМ наводит прицел на корпус врага (ближайшего к прицелу в пределах FOV).
-    - FOV настраивается ползунком в меню (от 50 до 500 пикселей).
+    ESP (все части тела, динамическое обновление) + Aimbot (тело, настраиваемый FOV)
+    - Рамки на все части (BoxHandleAdornment), жёлтые.
+    - Новые части (аксессуары) подсвечиваются автоматически.
+    - Аимбот при удержании ПКМ наводит на корпус ближайшего к прицелу врага.
+    - FOV регулируется ползунком (50–500 пикселей).
     - Полное удаление объектов.
 ]]
 
@@ -26,11 +27,11 @@ local Settings = {
     ESP_Enabled = true,
     Aimbot_Enabled = true,
     TeamCheck = true,
-    FOV = 200,  -- значение по умолчанию, будет меняться ползунком
+    FOV = 200,  -- пикселей на экране (можно менять ползунком)
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
-local ESP_Cache = setmetatable({}, {__mode = "v"})  -- папки с рамками для каждого игрока
+local ESP_Cache = setmetatable({}, {__mode = "v"})  -- данные ESP для каждого игрока
 local IsAiming = false
 
 -- ===== УНИВЕРСАЛЬНОЕ ДВИЖЕНИЕ МЫШИ =====
@@ -49,7 +50,7 @@ local function MoveMouse(targetX, targetY)
     end
 end
 
--- ===== ESP =====
+-- ===== ESP (динамическое обновление) =====
 local function IsEnemy(p)
     if p == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -59,7 +60,7 @@ local function IsEnemy(p)
     return true
 end
 
--- Создать рамку для конкретной части и добавить в контейнер
+-- Создать рамку для одной части
 local function CreateBoxForPart(part, container)
     if not part:IsA("BasePart") or part.Transparency >= 1 then return end
     local box = Instance.new("BoxHandleAdornment")
@@ -82,9 +83,11 @@ local function CreateESPForCharacter(player, character)
     local hum = character:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый ESP, если есть
+    -- Удалить старый ESP, если есть
     if ESP_Cache[player] then
-        pcall(function() ESP_Cache[player]:Destroy() end)
+        if ESP_Cache[player].Container then
+            ESP_Cache[player].Container:Destroy()
+        end
         ESP_Cache[player] = nil
     end
 
@@ -92,22 +95,22 @@ local function CreateESPForCharacter(player, character)
     container.Name = "ESP_" .. player.Name
     container.Parent = CoreGui
 
-    -- Создаём рамки для всех текущих частей
+    -- Создать рамки для всех текущих частей
     for _, part in pairs(character:GetChildren()) do
         CreateBoxForPart(part, container)
     end
 
-    -- Подписываемся на добавление новых частей
-    local connection_add = character.ChildAdded:Connect(function(child)
+    -- Подписка на добавление новых частей
+    local addConn = character.ChildAdded:Connect(function(child)
         CreateBoxForPart(child, container)
     end)
 
-    -- Подписываемся на удаление частей (чтобы убрать рамку, если часть удалена)
-    local connection_rem = character.ChildRemoving:Connect(function(child)
+    -- Подписка на удаление частей (чтобы убрать рамку)
+    local remConn = character.ChildRemoving:Connect(function(child)
         if child:IsA("BasePart") then
-            for _, existing in pairs(container:GetChildren()) do
-                if existing:IsA("BoxHandleAdornment") and existing.Adornee == child then
-                    existing:Destroy()
+            for _, obj in pairs(container:GetChildren()) do
+                if obj:IsA("BoxHandleAdornment") and obj.Adornee == child then
+                    obj:Destroy()
                     break
                 end
             end
@@ -116,7 +119,7 @@ local function CreateESPForCharacter(player, character)
 
     ESP_Cache[player] = {
         Container = container,
-        Connections = {connection_add, connection_rem}
+        Connections = {addConn, remConn}
     }
 end
 
@@ -128,12 +131,14 @@ local function RemoveESP(player)
                 conn:Disconnect()
             end
         end
-        pcall(function() ESP_Cache[player].Container:Destroy() end)
+        if ESP_Cache[player].Container then
+            ESP_Cache[player].Container:Destroy()
+        end
         ESP_Cache[player] = nil
     end
 end
 
--- Обновить ESP для всех игроков (после изменения TeamCheck и т.п.)
+-- Обновить ESP для всех (после изменения TeamCheck)
 local function RefreshAllESP()
     for player, _ in pairs(ESP_Cache) do
         RemoveESP(player)
@@ -370,4 +375,4 @@ end)
 
 -- ===== ЗАПУСК =====
 RefreshAllESP()
-print("✅ ESP + Aimbot загружены. Удерживайте ПКМ для наведения. FOV регулируется в меню.")
+print("✅ ESP (динамический) + Aimbot загружены. Удерживайте ПКМ для наведения. FOV регулируется в меню.")
