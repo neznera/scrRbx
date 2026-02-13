@@ -1,49 +1,80 @@
 --[[
-    ULTRA SIMPLE ESP — ПОДСВЕТИТ ВСЕХ ВРАГОВ В ЛЮБОЙ ИГРЕ
-    - Работает через RenderStepped (пересоздаёт рамки каждый кадр)
-    - Не требует сложных событий, поэтому 100% надёжно
-    - Немного нагружает, но для Defusal достаточно
+    ESP (все части, пересоздание каждый кадр) + Aimbot (тело, ПКМ, FOV)
+    - ESP: жёлтые рамки на все BasePart врагов.
+    - Aimbot: при удержании ПКМ наводит на корпус ближайшего в FOV.
+    - Настройки: TeamCheck, FOV, включение аима (можно менять в коде).
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
 
 if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
 
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- Контейнер для всех рамок (будем очищать каждый кадр)
+-- ===== НАСТРОЙКИ (меняй здесь) =====
+local Settings = {
+    -- ESP
+    ESP_Enabled = true,
+    -- Aimbot
+    Aimbot_Enabled = true,
+    TeamCheck = true,        -- true = не аимить союзников, false = всех
+    FOV = 200,               -- радиус в пикселях на экране
+    AimKey = Enum.UserInputType.MouseButton2, -- ПКМ
+}
+
+-- ===== ПЕРЕМЕННЫЕ =====
 local ESP_Folder = Instance.new("Folder")
 ESP_Folder.Name = "ESP_Container"
 ESP_Folder.Parent = CoreGui
 
--- Функция проверки враг/союзник (можно отключить TeamCheck)
-local function IsEnemy(player)
-    if player == LocalPlayer then return false end
-    -- Если хочешь убрать TeamCheck, замени всё на return true
-    if not player.Team or not LocalPlayer.Team then return true end
-    return player.Team ~= LocalPlayer.Team
+local IsAiming = false
+
+-- ===== ФУНКЦИЯ ДВИЖЕНИЯ МЫШИ =====
+local function MoveMouse(targetX, targetY)
+    local current = UserInputService:GetMouseLocation()
+    local deltaX, deltaY = targetX - current.X, targetY - current.Y
+    if math.abs(deltaX) < 0.5 and math.abs(deltaY) < 0.5 then return end
+
+    if mousemoverel then
+        mousemoverel(deltaX, deltaY)
+    elseif syn and syn.input then
+        syn.input.MouseMove(deltaX, deltaY)
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
+    end
 end
 
--- Главный цикл ESP
-RunService.RenderStepped:Connect(function()
+-- ===== ПРОВЕРКА ВРАГ =====
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    if Settings.TeamCheck then
+        if not player.Team or not LocalPlayer.Team then return true end
+        return player.Team ~= LocalPlayer.Team
+    end
+    return true
+end
+
+-- ===== ESP (ПЕРЕСОЗДАНИЕ КАЖДЫЙ КАДР) =====
+local function UpdateESP()
     -- Удаляем все старые рамки
     for _, child in pairs(ESP_Folder:GetChildren()) do
         child:Destroy()
     end
 
-    -- Проходим по всем игрокам
+    if not Settings.ESP_Enabled then return end
+
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and IsEnemy(player) then
+        if IsEnemy(player) then
             local char = player.Character
             if char then
                 local hum = char:FindFirstChild("Humanoid")
                 if hum and hum.Health > 0 then
-                    -- Ищем все части тела (даже вложенные)
                     for _, part in pairs(char:GetDescendants()) do
                         if part:IsA("BasePart") and part.Transparency < 1 then
-                            -- Создаём рамку
                             local box = Instance.new("BoxHandleAdornment")
                             box.Name = part.Name
                             box.Adornee = part
@@ -59,6 +90,75 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
+end
+
+-- ===== AIMBOT: ПОИСК ЦЕЛИ =====
+local function GetTarget()
+    if not Settings.Aimbot_Enabled then return nil end
+
+    local mousePos = UserInputService:GetMouseLocation()
+    local closestPlayer = nil
+    local closestDist = Settings.FOV
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsEnemy(player) then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    -- Берём корпус (или голову, если корпуса нет)
+                    local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
+                    if targetPart then
+                        local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+                            local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                            if dist < closestDist then
+                                closestDist = dist
+                                closestPlayer = player
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- ===== УПРАВЛЕНИЕ АИМОМ =====
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.UserInputType == Settings.AimKey then
+        IsAiming = true
+    end
 end)
 
-print("✅ ULTRA SIMPLE ESP загружен. Если не видно врагов, проверь TeamCheck.")
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Settings.AimKey then
+        IsAiming = false
+    end
+end)
+
+-- ===== ГЛАВНЫЙ ЦИКЛ (ESP + AIMBOT) =====
+RunService.RenderStepped:Connect(function()
+    -- 1. Отрисовка ESP
+    UpdateESP()
+
+    -- 2. Логика аима
+    if IsAiming and Settings.Aimbot_Enabled then
+        local target = GetTarget()
+        if target then
+            local char = target.Character
+            if char then
+                local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
+                if targetPart then
+                    local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        MoveMouse(vec.X, vec.Y)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+print("✅ ESP + Aimbot загружены. Удерживай ПКМ для наведения. Настройки: TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV)
