@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local workspace = game:GetService("Workspace")
 
 if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
 
@@ -93,12 +94,10 @@ local function UpdateESP()
 end
 
 -- ===== AIMBOT: ПОИСК ЦЕЛИ =====
-local function GetTarget()
-    if not Settings.Aimbot_Enabled then return nil end
-
+local function GetClosestEnemyInFOV()
     local mousePos = UserInputService:GetMouseLocation()
     local closestPlayer = nil
-    local closestDist = Settings.FOV
+    local closestDist = Settings.FOV -- радиус в пикселях
 
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
@@ -106,15 +105,18 @@ local function GetTarget()
             if char then
                 local hum = char:FindFirstChild("Humanoid")
                 if hum and hum.Health > 0 then
-                    -- Берём корпус (или голову, если корпуса нет)
-                    local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
+                    local targetPart = 
+                        char:FindFirstChild("HumanoidRootPart") or 
+                        char:FindFirstChild("Torso") or 
+                        char:FindFirstChild("UpperTorso") or
+                        char:FindFirstChild("Head")
                     if targetPart then
                         local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                         if onScreen then
-                            local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                            local dist = (Vector2.new(vec.X, vec.Y) - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
                             if dist < closestDist then
                                 closestDist = dist
-                                closestPlayer = player
+                                closestPlayer = {player=player, targetPart=targetPart}
                             end
                         end
                     end
@@ -123,6 +125,15 @@ local function GetTarget()
         end
     end
     return closestPlayer
+end
+
+-- ===== ИТОГОВАЯ функция наведения =====
+local function AimAtTarget(targetPart)
+    if not targetPart then return end
+    local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+    if onScreen then
+        MoveMouse(vec.X, vec.Y)
+    end
 end
 
 -- ===== УПРАВЛЕНИЕ АИМОМ =====
@@ -138,25 +149,16 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- ===== ГЛАВНЫЙ ЦИКЛ (ESP + AIMBOT) =====
+-- ===== ГЛАВНЫЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
-    -- 1. Отрисовка ESP
+    -- Обновляем ESP
     UpdateESP()
 
-    -- 2. Логика аима
+    -- Работа аима
     if IsAiming and Settings.Aimbot_Enabled then
-        local target = GetTarget()
-        if target then
-            local char = target.Character
-            if char then
-                local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
-                if targetPart then
-                    local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                    if onScreen then
-                        MoveMouse(vec.X, vec.Y)
-                    end
-                end
-            end
+        local targetData = GetClosestEnemyInFOV()
+        if targetData and targetData.targetPart then
+            AimAtTarget(targetData.targetPart)
         end
     end
 end)
