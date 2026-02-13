@@ -1,159 +1,82 @@
 --[[
-    ESP (жёлтые рамки) + Aimbot (автоматически на голову, без удержания, большой FOV)
-    - ESP: рамки на все BasePart врагов (обновляются каждый кадр).
-    - Aimbot: постоянно наводит мышь на голову ближайшего врага в FOV.
-    - Настройки: TeamCheck, FOV (можно менять ниже).
+    Простой и плавный аимбот на голову (постоянно активен)
+    - Плавное наведение (регулируется Smoothness)
+    - TeamCheck (не цепляет своих)
+    - FOV (радиус действия на экране)
+    - Работает без нажатия клавиш
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-local workspace = game:GetService("Workspace")
-
-if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
-
-local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
--- ===== НАСТРОЙКИ (меняй здесь) =====
+-- Настройки (можно менять прямо здесь)
 local Settings = {
-    -- ESP
-    ESP_Enabled = true,
-
-    -- Aimbot
-    Aimbot_Enabled = true,      -- true = аим всегда активен
-    TeamCheck = true,           -- true = не целиться в союзников
-    FOV = 2000,                 -- радиус в пикселях на экране (2000 покрывает почти весь экран)
-    AimAtHead = true,           -- true = целиться в голову, false = в корпус (запасной вариант)
+    TeamCheck = true,           -- true = не наводиться на союзников
+    Smoothness = 0.2,           -- 0 = мгновенно, 0.5 = медленно, 1 = очень плавно
+    FOV = 200,                  -- радиус поиска цели на экране (в пикселях)
 }
 
--- ===== ПЕРЕМЕННЫЕ =====
-local ESP_Folder = Instance.new("Folder")
-ESP_Folder.Name = "ESP_Container"
-ESP_Folder.Parent = CoreGui
-
--- ===== ФУНКЦИЯ ДВИЖЕНИЯ МЫШИ =====
-local function MoveMouse(targetX, targetY)
-    local current = UserInputService:GetMouseLocation()
-    local deltaX, deltaY = targetX - current.X, targetY - current.Y
-    if math.abs(deltaX) < 0.5 and math.abs(deltaY) < 0.5 then return end
-
-    if mousemoverel then
-        mousemoverel(deltaX, deltaY)
-    elseif syn and syn.input then
-        syn.input.MouseMove(deltaX, deltaY)
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
-    end
-end
-
--- ===== ПРОВЕРКА ВРАГ =====
+-- Проверка: враг ли?
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
-    if Settings.TeamCheck then
-        if not player.Team or not LocalPlayer.Team then return true end
+    if Settings.TeamCheck and player.Team and LocalPlayer.Team then
         return player.Team ~= LocalPlayer.Team
     end
     return true
 end
 
--- ===== ESP (ПЕРЕСОЗДАНИЕ КАЖДЫЙ КАДР) =====
-local function UpdateESP()
-    -- Удаляем все старые рамки
-    for _, child in pairs(ESP_Folder:GetChildren()) do
-        child:Destroy()
-    end
-
-    if not Settings.ESP_Enabled then return end
-
-    for _, player in pairs(Players:GetPlayers()) do
-        if IsEnemy(player) then
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChild("Humanoid")
-                if hum and hum.Health > 0 then
-                    for _, part in pairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") and part.Transparency < 1 then
-                            local box = Instance.new("BoxHandleAdornment")
-                            box.Name = part.Name
-                            box.Adornee = part
-                            box.AlwaysOnTop = true
-                            box.ZIndex = 10
-                            box.Size = part.Size * 1.05
-                            box.Transparency = 0.3
-                            box.Color = BrickColor.new("Bright yellow")
-                            box.Parent = ESP_Folder
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
--- ===== ПОИСК ЦЕЛИ (ближайший враг в FOV) =====
-local function GetClosestEnemyInFOV()
+-- Поиск ближайшего врага с видимой головой
+local function GetClosestEnemy()
     local mousePos = UserInputService:GetMouseLocation()
-    local closestPlayer = nil
+    local closest = nil
     local closestDist = Settings.FOV
 
-    for _, player in pairs(Players:GetPlayers()) do
-        if IsEnemy(player) then
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChild("Humanoid")
-                if hum and hum.Health > 0 then
-                    -- Определяем целевую часть
-                    local targetPart
-                    if Settings.AimAtHead then
-                        targetPart = char:FindFirstChild("Head")  -- сначала голова
-                    end
-                    if not targetPart then  -- если головы нет или AimAtHead = false
-                        targetPart = char:FindFirstChild("HumanoidRootPart") or
-                                     char:FindFirstChild("Torso") or
-                                     char:FindFirstChild("UpperTorso") or
-                                     char:FindFirstChild("Head")  -- на всякий случай
-                    end
-
-                    if targetPart then
-                        local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                        if onScreen then
-                            local dist = (Vector2.new(vec.X, vec.Y) - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
-                            if dist < closestDist then
-                                closestDist = dist
-                                closestPlayer = {player = player, targetPart = targetPart}
-                            end
-                        end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if IsEnemy(player) and player.Character then
+            local hum = player.Character:FindFirstChild("Humanoid")
+            local head = player.Character:FindFirstChild("Head")
+            if hum and hum.Health > 0 and head then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closest = head
                     end
                 end
             end
         end
     end
-    return closestPlayer
+    return closest
 end
 
--- ===== НАВЕДЕНИЕ =====
-local function AimAtTarget(targetPart)
-    if not targetPart then return end
-    local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-    if onScreen then
-        MoveMouse(vec.X, vec.Y)
+-- Плавное движение мыши
+local function MoveMouseSmooth(targetX, targetY)
+    local current = UserInputService:GetMouseLocation()
+    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
+    if delta.Magnitude < 1 then return end
+
+    local move = delta * Settings.Smoothness
+    -- Поддержка разных экзекуторов
+    if mousemoverel then
+        mousemoverel(move.X, move.Y)
+    elseif syn and syn.input then
+        syn.input.MouseMove(move.X, move.Y)
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(move.X, move.Y, false)
     end
 end
 
--- ===== ГЛАВНЫЙ ЦИКЛ (работает постоянно) =====
+-- Главный цикл (каждый кадр)
 RunService.RenderStepped:Connect(function()
-    -- Обновляем ESP
-    UpdateESP()
-
-    -- Аим всегда активен (без удержания кнопки)
-    if Settings.Aimbot_Enabled then
-        local targetData = GetClosestEnemyInFOV()
-        if targetData and targetData.targetPart then
-            AimAtTarget(targetData.targetPart)
-        end
+    local target = GetClosestEnemy()
+    if target then
+        local pos = Camera:WorldToViewportPoint(target.Position)
+        MoveMouseSmooth(pos.X, pos.Y)
     end
 end)
 
-print("✅ Автоматический Aimbot (голова) + ESP загружены. TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV)
+print("✅ Плавный аимбот на голову запущен. Настройки: TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV .. ", Smoothness = " .. Settings.Smoothness)
