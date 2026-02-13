@@ -1,10 +1,9 @@
 --[[
     ESP (подсветка всех частей тела) + Aimbot (тело)
-    - 3D-рамки вокруг каждой части персонажа
-    - Цвет жёлтый, видно сквозь стены
-    - Аимбот наводится на корпус (HumanoidRootPart/Torso)
-    - Меню с чекбоксами и слайдером FOV
-    - Полное удаление объектов при выходе/респавне
+    - 3D-рамки вокруг каждой части (BoxHandleAdornment)
+    - Автоматическое удаление рамок при смерти/выходе
+    - Аимбот наводится на корпус (или голову)
+    - Меню с настройками
 ]]
 
 local Players = game:GetService("Players")
@@ -31,9 +30,27 @@ local Settings = {
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
-local ESP_Cache = setmetatable({}, {__mode = "v"}) -- папки с боксами
+local ESP_Cache = setmetatable({}, {__mode = "v"}) -- контейнеры с рамками
 local IsAiming = false
-local currentTarget = nil
+
+-- ===== УНИВЕРСАЛЬНОЕ ДВИЖЕНИЕ МЫШИ =====
+local function MoveMouse(targetX, targetY)
+    local current = UserInputService:GetMouseLocation()
+    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
+    if delta.Magnitude < 0.5 then return end
+
+    if mousemoverel then
+        mousemoverel(delta.X, delta.Y)
+        return true
+    elseif syn and syn.input then
+        syn.input.MouseMove(delta.X, delta.Y)
+        return true
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(delta.X, delta.Y, false)
+        return true
+    end
+    return false
+end
 
 -- ===== ESP (BOXHANDLEADORMENT НА КАЖДУЮ ЧАСТЬ) =====
 local function IsEnemy(p)
@@ -45,83 +62,88 @@ local function IsEnemy(p)
     return true
 end
 
-local function CreateESP(p)
+-- Создать рамки для персонажа
+local function CreateESPForCharacter(player, character)
     if not Settings.ESP_Enabled then return end
-    if not IsEnemy(p) then return end
+    if not character then return end
+    if not IsEnemy(player) then return end
 
-    local char = p.Character
-    if not char then return end
-    local hum = char:FindFirstChild("Humanoid")
+    local hum = character:FindFirstChild("Humanoid")
     if not hum or hum.Health <= 0 then return end
 
-    -- Удаляем старый ESP, если есть
-    if ESP_Cache[p] then
-        ESP_Cache[p]:Destroy()
-        ESP_Cache[p] = nil
+    -- Удалить старые рамки этого игрока, если есть
+    if ESP_Cache[player] then
+        pcall(function() ESP_Cache[player]:Destroy() end)
+        ESP_Cache[player] = nil
     end
 
     local container = Instance.new("Folder")
-    container.Name = "ESP_" .. p.Name
+    container.Name = "ESP_" .. player.Name
     container.Parent = CoreGui
 
-    for _, part in pairs(char:GetChildren()) do
+    for _, part in pairs(character:GetChildren()) do
         if part:IsA("BasePart") and part.Transparency < 1 then
             local box = Instance.new("BoxHandleAdornment")
             box.Name = part.Name
             box.Adornee = part
             box.AlwaysOnTop = true
             box.ZIndex = 10
-            box.Size = part.Size * 1.05  -- чуть больше, чтобы рамка была видна
+            box.Size = part.Size * 1.05
             box.Transparency = 0.3
             box.Color = BrickColor.new("Bright yellow")
             box.Parent = container
         end
     end
 
-    ESP_Cache[p] = container
+    ESP_Cache[player] = container
 end
 
-local function RemoveESP(p)
-    if ESP_Cache[p] then
-        ESP_Cache[p]:Destroy()
-        ESP_Cache[p] = nil
+-- Удалить рамки игрока
+local function RemoveESP(player)
+    if ESP_Cache[player] then
+        pcall(function() ESP_Cache[player]:Destroy() end)
+        ESP_Cache[player] = nil
     end
 end
 
-local function RefreshESP()
-    for p, _ in pairs(ESP_Cache) do
-        RemoveESP(p)
+-- Обновить ESP для всех (например, после изменения TeamCheck)
+local function RefreshAllESP()
+    for player, _ in pairs(ESP_Cache) do
+        RemoveESP(player)
     end
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            CreateESP(p)
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            CreateESPForCharacter(player, player.Character)
         end
     end
 end
 
--- ===== СОБЫТИЯ ИГРОКОВ =====
-local function onCharacterAdded(p)
-    if p == LocalPlayer then return end
+-- Подписка на события игроков
+local function onCharacterAdded(player, character)
+    if player == LocalPlayer then return end
+    -- Небольшая задержка, чтобы персонаж загрузился
     task.wait(0.1)
-    CreateESP(p)
+    CreateESPForCharacter(player, character)
 end
 
-local function onCharacterRemoving(p)
-    RemoveESP(p)
+local function onCharacterRemoving(player)
+    RemoveESP(player)
 end
 
-for _, p in pairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer then
-        if p.Character then CreateESP(p) end
-        p.CharacterAdded:Connect(onCharacterAdded)
-        p.CharacterRemoving:Connect(onCharacterRemoving)
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        if player.Character then
+            CreateESPForCharacter(player, player.Character)
+        end
+        player.CharacterAdded:Connect(function(char) onCharacterAdded(player, char) end)
+        player.CharacterRemoving:Connect(function() onCharacterRemoving(player) end)
     end
 end
 
-Players.PlayerAdded:Connect(function(p)
-    if p == LocalPlayer then return end
-    p.CharacterAdded:Connect(onCharacterAdded)
-    p.CharacterRemoving:Connect(onCharacterRemoving)
+Players.PlayerAdded:Connect(function(player)
+    if player == LocalPlayer then return end
+    player.CharacterAdded:Connect(function(char) onCharacterAdded(player, char) end)
+    player.CharacterRemoving:Connect(function() onCharacterRemoving(player) end)
 end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
@@ -133,43 +155,34 @@ local function IsTeamMate(p)
     return p.Team == LocalPlayer.Team
 end
 
-local function GetClosestEnemy()
+local function GetAimTarget()
     local mousePos = UserInputService:GetMouseLocation()
-    local closest, closestDist = nil, Settings.FOV
+    local closestPlayer = nil
+    local closestDist = Settings.FOV
 
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            if not IsTeamMate(p) then
-                local targetPart = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso") or p.Character:FindFirstChild("UpperTorso")
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            if not IsTeamMate(player) then
+                -- Пытаемся найти корневую часть (HumanoidRootPart/Torso), иначе голову
+                local targetPart = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso") or player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Head")
                 if targetPart then
                     local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                     if onScreen then
                         local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
                         if dist < closestDist then
                             closestDist = dist
-                            closest = p
+                            closestPlayer = player
                         end
                     end
                 end
             end
         end
     end
-    return closest
+
+    return closestPlayer
 end
 
-local function MoveMouse(targetX, targetY)
-    local current = UserInputService:GetMouseLocation()
-    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
-    if delta.Magnitude < 0.5 then return end
-    if mousemoverel then
-        mousemoverel(delta.X, delta.Y)
-    elseif syn and syn.input then
-        syn.input.MouseMove(delta.X, delta.Y)
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(delta.X, delta.Y, false)
-    end
-end
-
+-- Управление аимом
 UserInputService.InputBegan:Connect(function(input, gp)
     if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
         IsAiming = true
@@ -182,11 +195,17 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- Главный цикл аима
 RunService.RenderStepped:Connect(function()
     if Settings.Aimbot_Enabled and IsAiming then
-        local target = GetClosestEnemy()
+        local target = GetAimTarget()
         if target then
-            local targetPart = target.Character and (target.Character:FindFirstChild("HumanoidRootPart") or target.Character:FindFirstChild("Torso") or target.Character:FindFirstChild("UpperTorso"))
+            local targetPart = target.Character and (
+                target.Character:FindFirstChild("HumanoidRootPart") or
+                target.Character:FindFirstChild("Torso") or
+                target.Character:FindFirstChild("UpperTorso") or
+                target.Character:FindFirstChild("Head")
+            )
             if targetPart then
                 local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                 if onScreen then
@@ -197,7 +216,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ===== МЕНЮ (ПРОСТОЕ, РАБОЧЕЕ) =====
+-- ===== МЕНЮ =====
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Menu_" .. math.random(9999)
 ScreenGui.Parent = CoreGui
@@ -239,8 +258,8 @@ CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseBtn
 CloseBtn.MouseButton1Click:Connect(function()
     -- Полная очистка ESP
-    for p, _ in pairs(ESP_Cache) do
-        RemoveESP(p)
+    for player, _ in pairs(ESP_Cache) do
+        RemoveESP(player)
     end
     ScreenGui:Destroy()
 end)
@@ -279,9 +298,11 @@ local function CreateCheckbox(text, getter, setter)
         setter(new)
         box.BackgroundColor3 = new and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(80, 80, 80)
         if text == "ESP" then
-            if new then RefreshESP() else
+            if new then RefreshAllESP() else
                 for p, _ in pairs(ESP_Cache) do RemoveESP(p) end
             end
+        elseif text == "Team Check" then
+            RefreshAllESP()
         end
     end)
     return yPos + 30
@@ -289,7 +310,7 @@ end
 
 yPos = CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
 yPos = CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
-yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshESP() end)
+yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v; RefreshAllESP() end)
 
 -- FOV слайдер
 local fovLabel = Instance.new("TextLabel")
@@ -326,5 +347,5 @@ fovPlus.MouseButton1Click:Connect(function()
 end)
 
 -- ===== ЗАПУСК =====
-RefreshESP()
-print("✅ ESP (подсветка частей тела) + Aimbot загружены. Удерживайте ПКМ для наведения.")
+RefreshAllESP()
+print("✅ ESP (3D рамки на все части) + Aimbot загружены. Удерживайте ПКМ для наведения.")
