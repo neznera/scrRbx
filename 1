@@ -1,153 +1,36 @@
---[[
-    ███████╗███████╗██████╗     ██╗   ██╗██╗███████╗██╗██████╗ ██╗     ███████╗
-    ██╔════╝██╔════╝██╔══██╗    ██║   ██║██║██╔════╝██║██╔══██╗██║     ██╔════╝
-    ███████╗█████╗  ██████╔╝    ██║   ██║██║█████╗  ██║██████╔╝██║     █████╗  
-    ╚════██║██╔══╝  ██╔═══╝     ╚██╗ ██╔╝██║██╔══╝  ██║██╔══██╗██║     ██╔══╝  
-    ███████║███████╗██║          ╚████╔╝ ██║██║     ██║██║  ██║███████╗███████╗
-    ╚══════╝╚══════╝╚═╝           ╚═══╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
-    
-    Версия: 1.0 — Только ESP (без аима)
-    Особенности:
-    - Жёлтые рамки на каждую часть тела.
-    - Всегда сверху (видно сквозь стены).
-    - Автоматическое обновление при появлении новых частей.
-    - Полное удаление при смерти/выходе.
-    - Работает в 99% игр.
-]]
-
 local Players = game:GetService("Players")
-local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
-
--- Защита CoreGui (для Krnl/Synapse и др.)
-if syn and syn.protect_gui then
-    syn.protect_gui(CoreGui)
-elseif protect_gui then
-    protect_gui(CoreGui)
-end
-
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Настройки ESP
-local ESP_COLOR = BrickColor.new("Bright yellow")  -- жёлтый
-local ESP_TRANSPARENCY = 0.3
+local ESP_Drawings = setmetatable({}, {__mode = "v"})
 
--- Хранилище созданных рамок
-local ESP_Cache = setmetatable({}, {__mode = "v"})
-
--- Функция проверки, враг ли игрок (тут просто все, кроме себя)
-local function IsEnemy(player)
-    return player ~= LocalPlayer
-end
-
--- Создание рамки для одной части
-local function CreateBoxForPart(part, container)
-    if not part:IsA("BasePart") then return end
-    if part.Transparency >= 1 then return end  -- невидимые части не подсвечиваем
-
-    local box = Instance.new("BoxHandleAdornment")
-    box.Name = part.Name
-    box.Adornee = part
-    box.AlwaysOnTop = true          -- видно сквозь стены
-    box.ZIndex = 10                  -- поверх других объектов
-    box.Size = part.Size * 1.05      -- чуть больше оригинала
-    box.Transparency = ESP_TRANSPARENCY
-    box.Color = ESP_COLOR
-    box.Parent = container
-end
-
--- Создание ESP для персонажа
-local function CreateESPForPlayer(player)
-    if not IsEnemy(player) then return end
-
-    local character = player.Character
-    if not character then return end
-
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return end
-
-    -- Удаляем старый контейнер, если есть
-    if ESP_Cache[player] then
-        ESP_Cache[player].Container:Destroy()
-        ESP_Cache[player] = nil
-    end
-
-    -- Создаём контейнер для всех рамок этого игрока
-    local container = Instance.new("Folder")
-    container.Name = "ESP_" .. player.Name
-    container.Parent = CoreGui
-
-    -- Создаём рамки для всех текущих частей
-    for _, part in pairs(character:GetChildren()) do
-        CreateBoxForPart(part, container)
-    end
-
-    -- Слушаем добавление новых частей (аксессуары, оружие)
-    local onChildAdded = character.ChildAdded:Connect(function(child)
-        CreateBoxForPart(child, container)
-    end)
-
-    -- Слушаем удаление частей (чтобы убрать рамку)
-    local onChildRemoving = character.ChildRemoving:Connect(function(child)
-        if child:IsA("BasePart") then
-            -- Ищем рамку, прикреплённую к этой части, и удаляем её
-            for _, obj in pairs(container:GetChildren()) do
-                if obj:IsA("BoxHandleAdornment") and obj.Adornee == child then
-                    obj:Destroy()
-                    break
+RunService.RenderStepped:Connect(function()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    if not ESP_Drawings[player] then
+                        ESP_Drawings[player] = Drawing.new("Circle")
+                        ESP_Drawings[player].Radius = 20
+                        ESP_Drawings[player].Filled = false
+                        ESP_Drawings[player].Thickness = 2
+                        ESP_Drawings[player].Color = Color3.fromRGB(255,255,0)
+                    end
+                    ESP_Drawings[player].Position = Vector2.new(pos.X, pos.Y)
+                    ESP_Drawings[player].Visible = true
+                else
+                    if ESP_Drawings[player] then
+                        ESP_Drawings[player].Visible = false
+                    end
                 end
             end
+        else
+            if ESP_Drawings[player] then
+                ESP_Drawings[player].Visible = false
+            end
         end
-    end)
-
-    -- Сохраняем всё в кэш
-    ESP_Cache[player] = {
-        Container = container,
-        Connections = {onChildAdded, onChildRemoving}
-    }
-end
-
--- Удаление ESP для игрока
-local function RemoveESPForPlayer(player)
-    if ESP_Cache[player] then
-        for _, conn in pairs(ESP_Cache[player].Connections) do
-            conn:Disconnect()
-        end
-        ESP_Cache[player].Container:Destroy()
-        ESP_Cache[player] = nil
     end
-end
-
--- Обработка событий игроков
-local function onCharacterAdded(player)
-    if player == LocalPlayer then return end
-    -- Даём персонажу время загрузиться
-    task.wait(0.1)
-    CreateESPForPlayer(player)
-end
-
-local function onCharacterRemoving(player)
-    RemoveESPForPlayer(player)
-end
-
--- Подписываемся на существующих игроков
-for _, player in pairs(Players:GetPlayers()) do
-    if player ~= LocalPlayer then
-        if player.Character then
-            CreateESPForPlayer(player)
-        end
-        player.CharacterAdded:Connect(onCharacterAdded)
-        player.CharacterRemoving:Connect(onCharacterRemoving)
-    end
-end
-
--- Подписываемся на новых игроков
-Players.PlayerAdded:Connect(function(player)
-    if player == LocalPlayer then return end
-    player.CharacterAdded:Connect(onCharacterAdded)
-    player.CharacterRemoving:Connect(onCharacterRemoving)
 end)
-
--- Очистка при выходе игрока
-Players.PlayerRemoving:Connect(RemoveESPForPlayer)
-
-print("✅ ESP (жёлтые рамки) загружен. Если не видно, проверь TeamCheck или консоль (F9).")
