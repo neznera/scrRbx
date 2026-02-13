@@ -1,3 +1,10 @@
+--[[
+    ESP (все части) + Aimbot (тело, мгновенно)
+    Активация аима: удержание ПКМ
+    FOV регулируется в меню
+    Без утечек, без спама объектами
+]]
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -16,183 +23,337 @@ local DrawingSupported = pcall(Drawing.new, "Square")
 
 -- ===== НАСТРОЙКИ =====
 local Settings = {
-    FlySpeed = 50,
-    FlyEnabled = false,
+    ESP_Enabled = true,
+    Aimbot_Enabled = true,
+    TeamCheck = true,
+    FOV = 150,
 }
 
 -- ===== ПЕРЕМЕННЫЕ =====
-local flyBV = nil
-local flyBG = nil
-local flyConnection = nil
+local ESP_Cache = setmetatable({}, {__mode = "v"})  -- для Drawing
+local ESP_Billboards = setmetatable({}, {__mode = "v"})  -- для BillboardGui
+local IsAiming = false
+local currentTarget = nil
 
--- ===== ВКЛЮЧЕНИЕ FLY =====
-local function EnableFly()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not root or not hum then return end
+-- ===== ESP (ВСЕ ЧАСТИ ТЕЛА) =====
+local function IsEnemy(p)
+    if p == LocalPlayer then return false end
+    if Settings.TeamCheck then
+        if not p.Team or not LocalPlayer.Team then return true end
+        return p.Team ~= LocalPlayer.Team
+    end
+    return true
+end
 
-    hum.PlatformStand = true
-
-    flyBV = Instance.new("BodyVelocity")
-    flyBV.Name = "FlyBV_" .. math.random(9999)
-    flyBV.MaxForce = Vector3.new(9000, 9000, 9000)
-    flyBV.Velocity = Vector3.new(0, 0, 0)
-    flyBV.Parent = root
-
-    flyBG = Instance.new("BodyGyro")
-    flyBG.Name = "FlyBG_" .. math.random(9999)
-    flyBG.MaxTorque = Vector3.new(9000, 9000, 9000)
-    flyBG.P = 1000
-    flyBG.D = 500
-    flyBG.CFrame = root.CFrame
-    flyBG.Parent = root
-
-    Settings.FlyEnabled = true
-
-    flyConnection = RunService.Heartbeat:Connect(function()
-        if not Settings.FlyEnabled or not char or not root then
-            DisableFly()
+if DrawingSupported then
+    -- РИСОВАНИЕ ЧЕРЕЗ DRAWING (2D)
+    local function UpdateESP()
+        if not Settings.ESP_Enabled then
+            for _, boxes in pairs(ESP_Cache) do
+                for _, box in pairs(boxes) do
+                    box.Visible = false
+                end
+            end
             return
         end
 
-        local move = Vector3.new()
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            move = move + Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            move = move - Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            move = move - Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            move = move + Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            move = move + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-            move = move - Vector3.new(0, 1, 0)
+        -- Делаем все боксы невидимыми
+        for _, boxes in pairs(ESP_Cache) do
+            for _, box in pairs(boxes) do
+                box.Visible = false
+            end
         end
 
-        if move.Magnitude > 0 then
-            move = move.Unit * Settings.FlySpeed
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                if IsEnemy(p) then
+                    local char = p.Character
+                    local parts = {}
+                    for _, part in pairs(char:GetChildren()) do
+                        if part:IsA("BasePart") and part.Transparency < 1 then
+                            table.insert(parts, part)
+                        end
+                    end
+
+                    -- Создаём кэш для этого игрока, если нет
+                    if not ESP_Cache[p] then
+                        ESP_Cache[p] = {}
+                    end
+                    local boxes = ESP_Cache[p]
+
+                    -- Обновляем/создаём боксы для каждой части
+                    for i, part in ipairs(parts) do
+                        local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                        if onScreen then
+                            local dist = (Camera.CFrame.Position - part.Position).Magnitude
+                            local scale = math.clamp(300 / dist, 0.5, 2)
+                            local size = part.Size * 40 * scale
+                            local x = pos.X - size.X/2
+                            local y = pos.Y - size.Y/2
+
+                            if not boxes[i] then
+                                boxes[i] = Drawing.new("Square")
+                                boxes[i].Thickness = 2
+                                boxes[i].Filled = false
+                                boxes[i].Color = Color3.fromRGB(255, 255, 0)
+                                boxes[i].Transparency = 0.5
+                                boxes[i].ZIndex = 5
+                            end
+                            local box = boxes[i]
+                            box.Visible = true
+                            box.Size = Vector2.new(size.X, size.Y)
+                            box.Position = Vector2.new(x, y)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    RunService.RenderStepped:Connect(UpdateESP)
+
+    -- Очистка при выходе игрока
+    Players.PlayerRemoving:Connect(function(p)
+        if ESP_Cache[p] then
+            for _, box in pairs(ESP_Cache[p]) do
+                box:Remove()
+            end
+            ESP_Cache[p] = nil
+        end
+    end)
+else
+    -- FALLBACK: BillboardGui (менее производительно, но работает)
+    local function CreateBillboardESP(p)
+        if not Settings.ESP_Enabled then return end
+        if not IsEnemy(p) then return end
+
+        local char = p.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+
+        -- Удаляем старые
+        if ESP_Billboards[p] then
+            for _, bill in pairs(ESP_Billboards[p]) do
+                bill:Destroy()
+            end
+            ESP_Billboards[p] = nil
         end
 
-        flyBV.Velocity = move
-        flyBG.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
+        ESP_Billboards[p] = {}
+
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.Transparency < 1 then
+                local bill = Instance.new("BillboardGui")
+                bill.Name = "ESP_" .. part.Name
+                bill.Adornee = part
+                bill.Size = UDim2.new(part.Size.X/3, 0, part.Size.Y/3, 0)
+                bill.AlwaysOnTop = true
+                bill.LightInfluence = 0
+                bill.Parent = CoreGui
+
+                local frame = Instance.new("Frame")
+                frame.Size = UDim2.new(1, 0, 1, 0)
+                frame.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
+                frame.BackgroundTransparency = 0.5
+                frame.BorderSizePixel = 1
+                frame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+                frame.Parent = bill
+
+                table.insert(ESP_Billboards[p], bill)
+            end
+        end
+    end
+
+    local function RemoveBillboardESP(p)
+        if ESP_Billboards[p] then
+            for _, bill in pairs(ESP_Billboards[p]) do
+                bill:Destroy()
+            end
+            ESP_Billboards[p] = nil
+        end
+    end
+
+    local function RefreshBillboardESP()
+        for p, _ in pairs(ESP_Billboards) do
+            RemoveBillboardESP(p)
+        end
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then CreateBillboardESP(p) end
+        end
+    end
+
+    Players.PlayerAdded:Connect(function(p)
+        if p == LocalPlayer then return end
+        p.CharacterAdded:Connect(function()
+            task.wait(0.1)
+            CreateBillboardESP(p)
+        end)
     end)
 
-    Settings.FlyEnabled = true
-end
-
--- ===== ВЫКЛЮЧЕНИЕ FLY =====
-local function DisableFly()
-    Settings.FlyEnabled = false
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-    if flyBV then
-        flyBV:Destroy()
-        flyBV = nil
-    end
-    if flyBG then
-        flyBG:Destroy()
-        flyBG = nil
-    end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            CreateBillboardESP(p)
         end
     end
+
+    Players.PlayerRemoving:Connect(RemoveBillboardESP)
+    RefreshBillboardESP()
 end
 
--- ===== ПЕРЕКЛЮЧЕНИЕ ПО КНОПКЕ F =====
+-- ===== AIMBOT (НА ТЕЛО, МГНОВЕННО) =====
+local function IsTeamMate(p)
+    if not Settings.TeamCheck then return false end
+    if not p.Team or not LocalPlayer.Team then return false end
+    return p.Team == LocalPlayer.Team
+end
+
+local function GetClosestEnemy()
+    local mousePos = UserInputService:GetMouseLocation()
+    local closest, closestDist = nil, Settings.FOV
+    local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            if not IsTeamMate(p) then
+                local torso = p.Character:FindFirstChild("HumanoidRootPart") or p.Character:FindFirstChild("Torso") or p.Character:FindFirstChild("UpperTorso")
+                if torso then
+                    local vec, onScreen = Camera:WorldToViewportPoint(torso.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = p
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function MoveMouse(targetX, targetY)
+    local current = UserInputService:GetMouseLocation()
+    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
+    if delta.Magnitude < 0.5 then return end
+    if mousemoverel then
+        mousemoverel(delta.X, delta.Y)
+    elseif syn and syn.input then
+        syn.input.MouseMove(delta.X, delta.Y)
+    elseif VirtualInputManager then
+        VirtualInputManager:SendMouseMoveEvent(delta.X, delta.Y, false)
+    end
+end
+
 UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        if Settings.FlyEnabled then
-            DisableFly()
-        else
-            EnableFly()
+    if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        IsAiming = false
+        currentTarget = nil
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if Settings.Aimbot_Enabled and IsAiming then
+        local target = GetClosestEnemy()
+        if target then
+            local torso = target.Character and (target.Character:FindFirstChild("HumanoidRootPart") or target.Character:FindFirstChild("Torso") or target.Character:FindFirstChild("UpperTorso"))
+            if torso then
+                local vec, onScreen = Camera:WorldToViewportPoint(torso.Position)
+                if onScreen then
+                    MoveMouse(vec.X, vec.Y)
+                end
+            end
         end
     end
 end)
 
--- ===== ОТКЛЮЧАЕМ ПРИ РЕСПАВНЕ =====
-LocalPlayer.CharacterAdded:Connect(function()
-    if Settings.FlyEnabled then
-        DisableFly()
-    end
-end)
-
--- ===== МЕНЮ =====
+-- ===== МЕНЮ (DRAWING ИЛИ SCREENGUI) =====
 if DrawingSupported then
-    -- МЕНЮ ЧЕРЕЗ DRAWING (БЕЗ УТЕЧЕК)
+    -- МЕНЮ ЧЕРЕЗ DRAWING
     local bg = Drawing.new("Square")
     bg.Visible = true
     bg.Color = Color3.fromRGB(30, 30, 30)
     bg.Transparency = 0.9
-    bg.Size = Vector2.new(220, 120)
+    bg.Size = Vector2.new(250, 200)
     bg.Position = Vector2.new(50, 50)
     bg.Filled = true
     bg.ZIndex = 999
 
     local title = Drawing.new("Text")
     title.Visible = true
-    title.Color = Color3.fromRGB(0, 200, 255)
+    title.Color = Color3.fromRGB(255, 255, 0)
     title.Position = Vector2.new(60, 55)
-    title.Text = "FLY SIMPLE"
-    title.Size = 20
+    title.Text = "ESP + AIMBOT"
+    title.Size = 18
     title.ZIndex = 1000
 
-    local status = Drawing.new("Text")
-    status.Visible = true
-    status.Color = Color3.fromRGB(255, 100, 100)
-    status.Position = Vector2.new(60, 80)
-    status.Text = "FLY: OFF (F)"
-    status.Size = 16
-    status.ZIndex = 1000
+    local function addCheckbox(text, y, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, y)
+        box.Filled = true
+        box.ZIndex = 1000
 
-    local speedText = Drawing.new("Text")
-    speedText.Visible = true
-    speedText.Color = Color3.new(1,1,1)
-    speedText.Position = Vector2.new(60, 105)
-    speedText.Text = "Speed: " .. Settings.FlySpeed
-    speedText.Size = 14
-    speedText.ZIndex = 1000
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, y-2)
+        lbl.Text = text
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        return {box = box, lbl = lbl, y = y, get = getter, set = setter}
+    end
+
+    local items = {
+        addCheckbox("ESP", 80, function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end),
+        addCheckbox("Aimbot", 110, function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end),
+        addCheckbox("Team Check", 140, function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v end),
+    }
+
+    local fovText = Drawing.new("Text")
+    fovText.Visible = true
+    fovText.Color = Color3.new(1,1,1)
+    fovText.Position = Vector2.new(60, 170)
+    fovText.Text = "FOV: " .. Settings.FOV
+    fovText.Size = 14
+    fovText.ZIndex = 1000
 
     local minus = Drawing.new("Square")
     minus.Visible = true
-    minus.Color = Color3.fromRGB(80,80,80)
+    minus.Color = Color3.fromRGB(60,60,60)
     minus.Size = Vector2.new(20,20)
-    minus.Position = Vector2.new(160, 103)
+    minus.Position = Vector2.new(160, 168)
     minus.Filled = true
     minus.ZIndex = 1000
     local minusTxt = Drawing.new("Text")
     minusTxt.Visible = true
     minusTxt.Color = Color3.new(1,1,1)
-    minusTxt.Position = Vector2.new(166, 103)
+    minusTxt.Position = Vector2.new(166, 168)
     minusTxt.Text = "-"
     minusTxt.Size = 16
     minusTxt.ZIndex = 1001
 
     local plus = Drawing.new("Square")
     plus.Visible = true
-    plus.Color = Color3.fromRGB(80,80,80)
+    plus.Color = Color3.fromRGB(60,60,60)
     plus.Size = Vector2.new(20,20)
-    plus.Position = Vector2.new(185, 103)
+    plus.Position = Vector2.new(185, 168)
     plus.Filled = true
     plus.ZIndex = 1000
     local plusTxt = Drawing.new("Text")
     plusTxt.Visible = true
     plusTxt.Color = Color3.new(1,1,1)
-    plusTxt.Position = Vector2.new(191, 103)
+    plusTxt.Position = Vector2.new(191, 168)
     plusTxt.Text = "+"
     plusTxt.Size = 16
     plusTxt.ZIndex = 1001
@@ -200,59 +361,74 @@ if DrawingSupported then
     local close = Drawing.new("Text")
     close.Visible = true
     close.Color = Color3.new(1,0,0)
-    close.Position = Vector2.new(250, 55)
+    close.Position = Vector2.new(280, 55)
     close.Text = "X"
-    close.Size = 20
+    close.Size = 18
     close.ZIndex = 1000
 
     UserInputService.InputBegan:Connect(function(input, gp)
         if gp then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             local m = UserInputService:GetMouseLocation()
-            if m.X >= 50 and m.X <= 270 and m.Y >= 50 and m.Y <= 170 then
-                if m.X >= 160 and m.X <= 180 and m.Y >= 103 and m.Y <= 123 then
-                    Settings.FlySpeed = math.max(20, Settings.FlySpeed - 5)
-                    speedText.Text = "Speed: " .. Settings.FlySpeed
+            if m.X >= 50 and m.X <= 300 and m.Y >= 50 and m.Y <= 220 then
+                for _, item in ipairs(items) do
+                    if m.Y >= item.y-6 and m.Y <= item.y+6 and m.X >= 60 and m.X <= 72 then
+                        local new = not item.get()
+                        item.set(new)
+                        item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
                 end
-                if m.X >= 185 and m.X <= 205 and m.Y >= 103 and m.Y <= 123 then
-                    Settings.FlySpeed = math.min(200, Settings.FlySpeed + 5)
-                    speedText.Text = "Speed: " .. Settings.FlySpeed
+                if m.X >= 160 and m.X <= 180 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.max(30, Settings.FOV - 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
+                end
+                if m.X >= 185 and m.X <= 205 and m.Y >= 168 and m.Y <= 188 then
+                    Settings.FOV = math.min(300, Settings.FOV + 10)
+                    fovText.Text = "FOV: " .. Settings.FOV
                 end
             end
-            if m.X >= 250 and m.X <= 270 and m.Y >= 55 and m.Y <= 75 then
+            if m.X >= 280 and m.X <= 300 and m.Y >= 55 and m.Y <= 73 then
+                -- Полное закрытие и очистка
                 bg.Visible = false
                 title.Visible = false
-                status.Visible = false
-                speedText.Visible = false
+                fovText.Visible = false
                 minus.Visible = false
                 minusTxt.Visible = false
                 plus.Visible = false
                 plusTxt.Visible = false
                 close.Visible = false
-                if Settings.FlyEnabled then DisableFly() end
+                for _, item in ipairs(items) do
+                    item.box.Visible = false
+                    item.lbl.Visible = false
+                end
+                -- Удалить все ESP
+                if DrawingSupported then
+                    for _, boxes in pairs(ESP_Cache) do
+                        for _, box in pairs(boxes) do
+                            box:Remove()
+                        end
+                    end
+                    ESP_Cache = {}
+                else
+                    for p,_ in pairs(ESP_Billboards) do
+                        for _, bill in pairs(ESP_Billboards[p]) do
+                            bill:Destroy()
+                        end
+                    end
+                    ESP_Billboards = {}
+                end
             end
         end
     end)
-
-    RunService.RenderStepped:Connect(function()
-        if Settings.FlyEnabled then
-            status.Text = "FLY: ON (F)"
-            status.Color = Color3.fromRGB(100, 255, 100)
-        else
-            status.Text = "FLY: OFF (F)"
-            status.Color = Color3.fromRGB(255, 100, 100)
-        end
-    end)
-
 else
     -- FALLBACK: МЕНЮ ЧЕРЕЗ SCREENGUI
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "FlyMenu_" .. math.random(9999)
+    ScreenGui.Name = "Menu_" .. math.random(9999)
     ScreenGui.Parent = CoreGui
     if syn and syn.protect_gui then syn.protect_gui(ScreenGui) elseif protect_gui then protect_gui(ScreenGui) end
 
     local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 220, 0, 130)
+    MainFrame.Size = UDim2.new(0, 250, 0, 200)
     MainFrame.Position = UDim2.new(0, 50, 0, 50)
     MainFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
     MainFrame.BackgroundTransparency = 0.1
@@ -265,17 +441,17 @@ else
     UICorner.Parent = MainFrame
 
     local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, 0, 0, 30)
+    Title.Size = UDim2.new(1, 0, 0, 35)
     Title.BackgroundTransparency = 1
-    Title.Text = "FLY SIMPLE"
-    Title.TextColor3 = Color3.fromRGB(0,200,255)
+    Title.Text = "ESP + AIMBOT"
+    Title.TextColor3 = Color3.fromRGB(255,255,0)
     Title.Font = Enum.Font.SourceSansBold
     Title.TextSize = 20
     Title.Parent = MainFrame
 
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-    CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+    CloseBtn.Position = UDim2.new(1, -35, 0, 2)
     CloseBtn.BackgroundColor3 = Color3.fromRGB(150,0,0)
     CloseBtn.Text = "X"
     CloseBtn.TextColor3 = Color3.new(1,1,1)
@@ -286,67 +462,91 @@ else
     CloseCorner.CornerRadius = UDim.new(0, 6)
     CloseCorner.Parent = CloseBtn
     CloseBtn.MouseButton1Click:Connect(function()
-        if Settings.FlyEnabled then DisableFly() end
+        if not DrawingSupported then
+            for p,_ in pairs(ESP_Billboards) do
+                for _, bill in pairs(ESP_Billboards[p]) do
+                    bill:Destroy()
+                end
+            end
+            ESP_Billboards = {}
+        end
         ScreenGui:Destroy()
     end)
 
-    local StatusLabel = Instance.new("TextLabel")
-    StatusLabel.Size = UDim2.new(1, -20, 0, 25)
-    StatusLabel.Position = UDim2.new(0, 10, 0, 35)
-    StatusLabel.BackgroundColor3 = Color3.fromRGB(45,45,45)
-    StatusLabel.Text = "FLY: OFF (F)"
-    StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
-    StatusLabel.Font = Enum.Font.SourceSansBold
-    StatusLabel.TextSize = 18
-    StatusLabel.Parent = MainFrame
-    local StatusCorner = Instance.new("UICorner")
-    StatusCorner.CornerRadius = UDim.new(0, 6)
-    StatusCorner.Parent = StatusLabel
+    local yPos = 45
+    local function CreateCheckbox(text, getter, setter)
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, -20, 0, 25)
+        bg.Position = UDim2.new(0, 10, 0, yPos)
+        bg.BackgroundTransparency = 1
+        bg.Parent = MainFrame
 
-    local SpeedLabel = Instance.new("TextLabel")
-    SpeedLabel.Size = UDim2.new(1, -70, 0, 25)
-    SpeedLabel.Position = UDim2.new(0, 10, 0, 70)
-    SpeedLabel.BackgroundTransparency = 1
-    SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
-    SpeedLabel.TextColor3 = Color3.new(1,1,1)
-    SpeedLabel.Font = Enum.Font.SourceSans
-    SpeedLabel.TextSize = 16
-    SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-    SpeedLabel.Parent = MainFrame
+        local box = Instance.new("TextButton")
+        box.Size = UDim2.new(0, 20, 0, 20)
+        box.Position = UDim2.new(0, 0, 0.5, -10)
+        box.BackgroundColor3 = getter() and Color3.fromRGB(0,200,0) or Color3.fromRGB(80,80,80)
+        box.Text = ""
+        box.Parent = bg
+        local boxCorner = Instance.new("UICorner")
+        boxCorner.CornerRadius = UDim.new(0, 4)
+        boxCorner.Parent = box
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -30, 1, 0)
+        label.Position = UDim2.new(0, 30, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.new(1,1,1)
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 16
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = bg
+
+        box.MouseButton1Click:Connect(function()
+            local new = not getter()
+            setter(new)
+            box.BackgroundColor3 = new and Color3.fromRGB(0,200,0) or Color3.fromRGB(80,80,80)
+        end)
+        return yPos + 30
+    end
+
+    yPos = CreateCheckbox("ESP", function() return Settings.ESP_Enabled end, function(v) Settings.ESP_Enabled = v end)
+    yPos = CreateCheckbox("Aimbot", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
+    yPos = CreateCheckbox("Team Check", function() return Settings.TeamCheck end, function(v) Settings.TeamCheck = v end)
+
+    local fovLabel = Instance.new("TextLabel")
+    fovLabel.Size = UDim2.new(1, -70, 0, 25)
+    fovLabel.Position = UDim2.new(0, 10, 0, yPos)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.Text = "FOV: " .. Settings.FOV
+    fovLabel.TextColor3 = Color3.new(1,1,1)
+    fovLabel.Font = Enum.Font.SourceSans
+    fovLabel.TextSize = 16
+    fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+    fovLabel.Parent = MainFrame
 
     local MinusBtn = Instance.new("TextButton")
     MinusBtn.Size = UDim2.new(0, 25, 0, 25)
-    MinusBtn.Position = UDim2.new(1, -70, 0, 70)
+    MinusBtn.Position = UDim2.new(1, -70, 0, yPos)
     MinusBtn.Text = "-"
     MinusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
     MinusBtn.Parent = MainFrame
     MinusBtn.MouseButton1Click:Connect(function()
-        Settings.FlySpeed = math.max(20, Settings.FlySpeed - 5)
-        SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
+        Settings.FOV = math.max(30, Settings.FOV - 10)
+        fovLabel.Text = "FOV: " .. Settings.FOV
     end)
 
     local PlusBtn = Instance.new("TextButton")
     PlusBtn.Size = UDim2.new(0, 25, 0, 25)
-    PlusBtn.Position = UDim2.new(1, -40, 0, 70)
+    PlusBtn.Position = UDim2.new(1, -40, 0, yPos)
     PlusBtn.Text = "+"
     PlusBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
     PlusBtn.Parent = MainFrame
     PlusBtn.MouseButton1Click:Connect(function()
-        Settings.FlySpeed = math.min(200, Settings.FlySpeed + 5)
-        SpeedLabel.Text = "Speed: " .. Settings.FlySpeed
-    end)
-
-    RunService.RenderStepped:Connect(function()
-        if Settings.FlyEnabled then
-            StatusLabel.Text = "FLY: ON (F)"
-            StatusLabel.TextColor3 = Color3.fromRGB(100,255,100)
-            StatusLabel.BackgroundColor3 = Color3.fromRGB(40,80,40)
-        else
-            StatusLabel.Text = "FLY: OFF (F)"
-            StatusLabel.TextColor3 = Color3.fromRGB(255,100,100)
-            StatusLabel.BackgroundColor3 = Color3.fromRGB(80,40,40)
-        end
+        Settings.FOV = math.min(300, Settings.FOV + 10)
+        fovLabel.Text = "FOV: " .. Settings.FOV
     end)
 end
 
-print("✅ FLY загружен. Нажми F для полёта. Скорость регулируется в меню.")
+print("✅ ESP (все части) + Aimbot (тело) загружены.")
+print("🎯 Удерживайте ПКМ для наведения. FOV регулируется в меню.")
