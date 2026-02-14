@@ -1,8 +1,9 @@
 --[[
-    ESP + Legit Aimbot (U) + Fly (T)
-    - ESP: враги красные, союзники зелёные (опционально)
-    - Aimbot: плавное наведение на голову ближайшего врага при удержании U
-    - Fly: включение/выключение по клавише T, управление WASD + Пробел/Ctrl
+    🔹 ESP + Aimbot + Fly 🔹
+    - ESP: подсветка всех частей тела (враги красные, союзники зелёные)
+    - Aimbot: легитное наведение на голову при удержании U (плавность регулируется)
+    - Fly: полёт при нажатии T (WASD + Пробел/Ctrl)
+    Все настройки в начале скрипта.
 ]]
 
 local Players = game:GetService("Players")
@@ -15,50 +16,41 @@ if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- ========== НАСТРОЙКИ ==========
+-- ===== НАСТРОЙКИ (меняй под себя) =====
 local Settings = {
     -- ESP
     ESP_Enabled = true,
-    TeamCheck = true,          -- true = союзники зелёные, враги красные
-    
+    TeamCheck = true,          -- true: союзники зелёные, враги красные; false: все красные
+
     -- Aimbot
     Aimbot_Enabled = true,
-    Aimbot_Key = Enum.KeyCode.U,  -- клавиша активации аима (U)
-    FOV = 120,                     -- радиус в пикселях
-    Smoothness = 10,               -- чем больше, тем плавнее (1 = мгновенно)
-    
+    Aimbot_Key = Enum.KeyCode.U,      -- клавиша активации (удерживать)
+    FOV = 150,                        -- радиус поиска цели в пикселях
+    Smoothness = 8,                   -- плавность: 1 = мгновенно, больше = плавнее
+
     -- Fly
     Fly_Enabled = false,
-    Fly_Key = Enum.KeyCode.T,      -- клавиша включения/выключения полёта
+    Fly_Key = Enum.KeyCode.T,          -- клавиша вкл/выкл
     Fly_Speed = 50,
 }
 
--- ========== ПЕРЕМЕННЫЕ ==========
+-- ===== ESP =====
 local ESP_Folder = Instance.new("Folder")
 ESP_Folder.Name = "ESP_Container"
 ESP_Folder.Parent = CoreGui
 
-local IsAiming = false
-
--- Fly переменные
-local flyBodyVelocity = nil
-local flyBodyGyro = nil
-local flyConnection = nil
-
--- ========== ESP ==========
 local function GetTeamColor(player)
     if player == LocalPlayer then return nil end
     if Settings.TeamCheck then
         if not player.Team or not LocalPlayer.Team then
-            return BrickColor.new("Bright red") -- если нет команд – все красные
+            return BrickColor.new("Bright red")
         end
         if player.Team == LocalPlayer.Team then
-            return BrickColor.new("Bright green") -- союзники
+            return BrickColor.new("Bright green")
         else
-            return BrickColor.new("Bright red")   -- враги
+            return BrickColor.new("Bright red")
         end
     else
-        -- если TeamCheck выключен – все красные (кроме себя)
         return BrickColor.new("Bright red")
     end
 end
@@ -71,7 +63,7 @@ RunService.RenderStepped:Connect(function()
         return
     end
 
-    -- Удаляем старые рамки
+    -- Очистка старых рамок
     for _, child in pairs(ESP_Folder:GetChildren()) do
         child:Destroy()
     end
@@ -104,7 +96,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ========== AIMBOT ==========
+-- ===== AIMBOT =====
+local IsAiming = false
+
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -117,8 +111,7 @@ end
 local function GetTarget()
     if not Settings.Aimbot_Enabled then return nil end
     local mousePos = UserInputService:GetMouseLocation()
-    local closestPlayer = nil
-    local closestDist = Settings.FOV
+    local closest, closestDist = nil, Settings.FOV
     for _, player in pairs(Players:GetPlayers()) do
         if IsEnemy(player) then
             local char = player.Character
@@ -132,7 +125,7 @@ local function GetTarget()
                             local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
                             if dist < closestDist then
                                 closestDist = dist
-                                closestPlayer = player
+                                closest = player
                             end
                         end
                     end
@@ -140,13 +133,12 @@ local function GetTarget()
             end
         end
     end
-    return closestPlayer
+    return closest
 end
 
 local function MoveMouseSmooth(targetX, targetY)
     local current = UserInputService:GetMouseLocation()
-    local deltaX = targetX - current.X
-    local deltaY = targetY - current.Y
+    local deltaX, deltaY = targetX - current.X, targetY - current.Y
     if math.abs(deltaX) < 0.5 and math.abs(deltaY) < 0.5 then return end
 
     local smooth = math.max(1, Settings.Smoothness)
@@ -166,8 +158,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Settings.Aimbot_Key then
         IsAiming = true
-    elseif input.KeyCode == Settings.Fly_Key then
-        ToggleFly()
     end
 end)
 
@@ -192,7 +182,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ========== FLY ==========
+-- ===== FLY =====
+local flyBodyVelocity, flyBodyGyro, flyConnection
+
 local function EnableFly()
     local char = LocalPlayer.Character
     if not char then return end
@@ -236,7 +228,14 @@ local function ToggleFly()
     end
 end
 
--- Цикл управления полётом
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Settings.Fly_Key then
+        ToggleFly()
+    end
+end)
+
+-- Цикл полёта
 flyConnection = RunService.Heartbeat:Connect(function()
     if Settings.Fly_Enabled and LocalPlayer.Character then
         local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -269,13 +268,14 @@ flyConnection = RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Отключаем полёт при респавне
+-- Отключение при респавне
 LocalPlayer.CharacterAdded:Connect(function()
     if Settings.Fly_Enabled then
         DisableFly()
     end
 end)
 
--- ========== ЗАПУСК ==========
-print("✅ ESP + Legit Aimbot + Fly загружены. Удерживайте U для аима, T для полёта.")
-print("Настройки: TeamCheck =", Settings.TeamCheck, "FOV =", Settings.FOV, "Smoothness =", Settings.Smoothness, "Fly Speed =", Settings.Fly_Speed)
+print("✅ ESP + Aimbot + Fly загружены. Настройки:")
+print("   U – удерживать для аима")
+print("   T – вкл/выкл полёт")
+print("   TeamCheck =", Settings.TeamCheck, " FOV =", Settings.FOV, " Smoothness =", Settings.Smoothness)
