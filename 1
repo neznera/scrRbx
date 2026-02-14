@@ -1,16 +1,13 @@
 --[[
-    ⚡ ULTIMATE SCRIPT v2 ⚡
-    - ESP (жёлтые рамки на врагов)
-    - Legit Fly
-    - Legit Speed
-    - Health Boost
-    - Teleport to enemy (подъём и падение)
-    Team Check для всех функций.
-    Управление:
-        F  — полёт
-        G  — скорость
-        H  — здоровье
-        T  — телепорт на игрока под прицелом (вверх и падение)
+    ⚡ МЕНЮ + ВСЕ ФУНКЦИИ ⚡
+    - ESP (TeamCheck)
+    - Legit Fly (F)
+    - Legit Speed (G)
+    - Health Boost (H)
+    - Teleport to Enemy (T)
+    
+    Меню: Drawing (зелёный квадрат = включено)
+    Нажми на чекбокс, чтобы переключить функцию.
 ]]
 
 local Players = game:GetService("Players")
@@ -22,32 +19,26 @@ if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
 
 -- ========== НАСТРОЙКИ ==========
 local Settings = {
-    -- ESP
     ESP_Enabled = true,
-    TeamCheck = true,        -- учитывать команды
+    TeamCheck = true,          -- не подсвечивать тиммейтов
 
-    -- Legit Fly
     Fly_Enabled = false,
     Fly_Speed = 50,
     Fly_Key = Enum.KeyCode.F,
 
-    -- Legit Speed
     Speed_Enabled = false,
     Speed_Value = 32,
     Speed_Key = Enum.KeyCode.G,
 
-    -- Health Boost
     Health_Enabled = false,
     Health_Target = 9999,
     Health_Key = Enum.KeyCode.H,
 
-    -- Teleport
+    Teleport_Enabled = true,   -- всегда активно по клавише
     Teleport_Key = Enum.KeyCode.T,
-    Teleport_Height = 50,     -- высота подъёма над целью
 }
 
 -- ========== ESP ==========
@@ -64,10 +55,8 @@ local function IsEnemy(player)
     return true
 end
 
--- ========== FLY ==========
-local flyBodyVelocity = nil
-local flyBodyGyro = nil
-local flyConnection = nil
+-- ========== FLY (скрытный) ==========
+local flyBodyVelocity, flyBodyGyro, flyConnection
 
 local function EnableFly()
     local char = LocalPlayer.Character
@@ -81,7 +70,6 @@ local function EnableFly()
     flyBodyVelocity = Instance.new("BodyVelocity")
     flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
     flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    flyBodyVelocity.P = 1000
     flyBodyVelocity.Parent = root
 
     flyBodyGyro = Instance.new("BodyGyro")
@@ -109,32 +97,46 @@ local function ToggleFly()
     if Settings.Fly_Enabled then DisableFly() else EnableFly() end
 end
 
+-- Цикл полёта
 flyConnection = RunService.Heartbeat:Connect(function()
     if Settings.Fly_Enabled and LocalPlayer.Character then
         local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if root and flyBodyVelocity and flyBodyGyro then
             local move = Vector3.new()
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0, 1, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0, 1, 0) end
-            if move.Magnitude > 0 then move = move.Unit * Settings.Fly_Speed end
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                move = move + Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                move = move - Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                move = move - Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                move = move + Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                move = move + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                move = move - Vector3.new(0, 1, 0)
+            end
+            if move.Magnitude > 0 then
+                move = move.Unit * Settings.Fly_Speed
+            end
             flyBodyVelocity.Velocity = move
             flyBodyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
         end
     end
 end)
 
--- ========== SPEED ==========
+-- ========== LEGIT SPEED ==========
 local function ApplySpeed()
     local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.WalkSpeed = Settings.Speed_Enabled and Settings.Speed_Value or 16
-        end
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.WalkSpeed = Settings.Speed_Enabled and Settings.Speed_Value or 16
     end
 end
 
@@ -143,14 +145,14 @@ local function ToggleSpeed()
     ApplySpeed()
 end
 
--- ========== HEALTH ==========
-local healthConnection = nil
+-- ========== HEALTH BOOST ==========
+local healthConnection
 local function ApplyHealth()
     if not Settings.Health_Enabled then
         if healthConnection then healthConnection:Disconnect() healthConnection = nil end
         return
     end
-    if healthConnection then healthConnection:Disconnect() end
+    if healthConnection then return end
     healthConnection = RunService.Heartbeat:Connect(function()
         local char = LocalPlayer.Character
         if char then
@@ -167,44 +169,52 @@ local function ToggleHealth()
     ApplyHealth()
 end
 
--- ========== TELEPORT ==========
-local function TeleportToTarget(targetPlayer)
-    if not targetPlayer then return end
-    if Settings.TeamCheck and not IsEnemy(targetPlayer) then
-        print("⛔ Нельзя телепортироваться к союзнику (TeamCheck)")
-        return
+-- ========== TELEPORT TO ENEMY ==========
+local function TeleportToEnemy()
+    if not Settings.Teleport_Enabled then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    -- Ищем ближайшего врага (живого, видимого на экране, в пределах FOV 200)
+    local mousePos = UserInputService:GetMouseLocation()
+    local closestDist = 200
+    local target = nil
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and IsEnemy(player) then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
+                    if targetPart then
+                        local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+                            local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
+                            if dist < closestDist then
+                                closestDist = dist
+                                target = player
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
-    local char = LocalPlayer.Character
-    local targetChar = targetPlayer.Character
-    if not char or not targetChar then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
-    if not root or not targetRoot then return end
 
-    -- Поднимаемся над целью
-    local targetPos = targetRoot.Position
-    local newPos = Vector3.new(targetPos.X, targetPos.Y + Settings.Teleport_Height, targetPos.Z)
-    root.CFrame = CFrame.new(newPos)
-
-    -- Через небольшую задержку игрок упадёт (гравитация сделает своё дело)
-    -- Можно сразу, но пусть падает сам.
-    print("⬆️ Телепорт над " .. targetPlayer.Name .. ", падай!")
-end
-
--- Функция получения игрока под прицелом
-local function GetPlayerUnderMouse()
-    local target = Mouse.Target
-    if not target then return nil end
-    local player = Players:GetPlayerFromCharacter(target.Parent)
-    if player then return player end
-    -- может быть частью модели (Accessory и т.д.) ищем родителя-модель
-    local model = target.Parent
-    while model and model ~= workspace do
-        player = Players:GetPlayerFromCharacter(model)
-        if player then return player end
-        model = model.Parent
+    if target then
+        local targetChar = target.Character
+        local targetRoot = targetChar and (targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso"))
+        if targetRoot then
+            -- Телепортируемся над головой цели (чтобы упасть на него)
+            local teleportPos = targetRoot.Position + Vector3.new(0, 15, 0)
+            myRoot.CFrame = CFrame.new(teleportPos)
+            print("🔄 Телепорт к " .. target.Name)
+        end
+    else
+        print("⚠️ Нет цели в радиусе 200px")
     end
-    return nil
 end
 
 -- ========== УПРАВЛЕНИЕ КЛАВИШАМИ ==========
@@ -212,53 +222,48 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Settings.Fly_Key then
         ToggleFly()
-        print("🕊️ Fly: " .. (Settings.Fly_Enabled and "ON" or "OFF"))
     elseif input.KeyCode == Settings.Speed_Key then
         ToggleSpeed()
-        print("⚡ Speed: " .. (Settings.Speed_Enabled and "ON" or "OFF"))
     elseif input.KeyCode == Settings.Health_Key then
         ToggleHealth()
-        print("❤️ Health: " .. (Settings.Health_Enabled and "ON" or "OFF"))
     elseif input.KeyCode == Settings.Teleport_Key then
-        local target = GetPlayerUnderMouse()
-        if target then
-            TeleportToTarget(target)
-        else
-            print("❌ Нет игрока под прицелом")
-        end
+        TeleportToEnemy()
     end
 end)
 
 -- Сброс при респавне
 LocalPlayer.CharacterAdded:Connect(function()
     if Settings.Fly_Enabled then DisableFly() end
-    if Settings.Speed_Enabled then ApplySpeed() end
-    if Settings.Health_Enabled then ApplyHealth() end
+    ApplySpeed()
+    ApplyHealth()
 end)
 
--- ========== ESP ==========
+-- ========== ESP (ЦИКЛ) ==========
 RunService.RenderStepped:Connect(function()
+    -- Очистка старых рамок
     for _, child in pairs(ESP_Folder:GetChildren()) do
         child:Destroy()
     end
-    if not Settings.ESP_Enabled then return end
-    for _, player in pairs(Players:GetPlayers()) do
-        if IsEnemy(player) then
-            local char = player.Character
-            if char then
-                local hum = char:FindFirstChild("Humanoid")
-                if hum and hum.Health > 0 then
-                    for _, part in pairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") and part.Transparency < 1 then
-                            local box = Instance.new("BoxHandleAdornment")
-                            box.Name = part.Name
-                            box.Adornee = part
-                            box.AlwaysOnTop = true
-                            box.ZIndex = 10
-                            box.Size = part.Size * 1.05
-                            box.Transparency = 0.3
-                            box.Color = BrickColor.new("Bright yellow")
-                            box.Parent = ESP_Folder
+
+    if Settings.ESP_Enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if IsEnemy(player) then
+                local char = player.Character
+                if char then
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        for _, part in pairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") and part.Transparency < 1 then
+                                local box = Instance.new("BoxHandleAdornment")
+                                box.Name = part.Name
+                                box.Adornee = part
+                                box.AlwaysOnTop = true
+                                box.ZIndex = 10
+                                box.Size = part.Size * 1.05
+                                box.Transparency = 0.3
+                                box.Color = BrickColor.new("Bright yellow")
+                                box.Parent = ESP_Folder
+                            end
                         end
                     end
                 end
@@ -267,10 +272,121 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Применить скорость при старте
-task.spawn(function()
-    task.wait(1)
-    ApplySpeed()
-end)
+-- ========== МЕНЮ (DRAWING) ==========
+local function CreateMenu()
+    -- Фон
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 40)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(280, 240)
+    bg.Position = Vector2.new(50, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
 
-print("✅ Скрипт v2 загружен. Управление: F=Fly, G=Speed, H=Health, T=Teleport (на игрока под прицелом)")
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.fromRGB(255, 255, 0)
+    title.Position = Vector2.new(60, 55)
+    title.Text = "⚡ ULTIMATE MENU"
+    title.Size = 18
+    title.ZIndex = 1000
+
+    local closeBtn = Drawing.new("Text")
+    closeBtn.Visible = true
+    closeBtn.Color = Color3.new(1,0,0)
+    closeBtn.Position = Vector2.new(310, 55)
+    closeBtn.Text = "X"
+    closeBtn.Size = 18
+    closeBtn.ZIndex = 1000
+
+    -- Функция создания чекбокса
+    local checkboxes = {}
+    local yPos = 85
+    local function AddCheckbox(text, keyName, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, yPos)
+        box.Filled = true
+        box.ZIndex = 1000
+
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, yPos-2)
+        lbl.Text = text .. " [" .. keyName .. "]"
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        table.insert(checkboxes, {box=box, lbl=lbl, y=yPos, get=getter, set=setter})
+        yPos = yPos + 25
+    end
+
+    AddCheckbox("ESP (TeamCheck)", "", 
+        function() return Settings.ESP_Enabled end,
+        function(v) Settings.ESP_Enabled = v end)
+
+    AddCheckbox("Legit Fly", "F",
+        function() return Settings.Fly_Enabled end,
+        function(v) 
+            if v then EnableFly() else DisableFly() end
+        end)
+
+    AddCheckbox("Legit Speed", "G",
+        function() return Settings.Speed_Enabled end,
+        function(v) 
+            Settings.Speed_Enabled = v
+            ApplySpeed()
+        end)
+
+    AddCheckbox("Health Boost", "H",
+        function() return Settings.Health_Enabled end,
+        function(v) 
+            Settings.Health_Enabled = v
+            ApplyHealth()
+        end)
+
+    -- Телепорт всегда активен по клавише T
+    local tpText = Drawing.new("Text")
+    tpText.Visible = true
+    tpText.Color = Color3.new(1,1,1)
+    tpText.Position = Vector2.new(60, yPos)
+    tpText.Text = "Teleport [T]"
+    tpText.Size = 14
+    tpText.ZIndex = 1000
+
+    -- Обработка кликов мыши
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            -- Проверяем клик по чекбоксам
+            for _, cb in ipairs(checkboxes) do
+                if m.X >= 50 and m.X <= 350 and m.Y >= cb.y-6 and m.Y <= cb.y+6 then
+                    if m.X >= 60 and m.X <= 72 then
+                        local new = not cb.get()
+                        cb.set(new)
+                        cb.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
+                end
+            end
+            -- Клик по крестику
+            if m.X >= 310 and m.X <= 330 and m.Y >= 55 and m.Y <= 73 then
+                bg.Visible = false
+                title.Visible = false
+                closeBtn.Visible = false
+                tpText.Visible = false
+                for _, cb in ipairs(checkboxes) do
+                    cb.box.Visible = false
+                    cb.lbl.Visible = false
+                end
+            end
+        end
+    end)
+end
+
+CreateMenu()
+ApplySpeed()
+print("✅ Меню загружено. Управление: кликай по чекбоксам, клавиши F/G/H/T.")
