@@ -1,8 +1,8 @@
 --[[
-    ESP + Legit Aimbot (клавиша U)
-    - ESP: враги красные, союзники зелёные
+    ESP + Legit Aimbot (U) + Fly (T)
+    - ESP: враги красные, союзники зелёные (опционально)
     - Aimbot: плавное наведение на голову ближайшего врага при удержании U
-    - Настройки: TeamCheck, FOV, Smoothness
+    - Fly: включение/выключение по клавише T, управление WASD + Пробел/Ctrl
 ]]
 
 local Players = game:GetService("Players")
@@ -23,16 +23,29 @@ local Settings = {
     
     -- Aimbot
     Aimbot_Enabled = true,
-    Aimbot_Key = Enum.KeyCode.U,  -- клавиша активации (U)
+    Aimbot_Key = Enum.KeyCode.U,  -- клавиша активации аима (U)
     FOV = 120,                     -- радиус в пикселях
     Smoothness = 10,               -- чем больше, тем плавнее (1 = мгновенно)
+    
+    -- Fly
+    Fly_Enabled = false,
+    Fly_Key = Enum.KeyCode.T,      -- клавиша включения/выключения полёта
+    Fly_Speed = 50,
 }
 
--- ========== ESP ==========
+-- ========== ПЕРЕМЕННЫЕ ==========
 local ESP_Folder = Instance.new("Folder")
 ESP_Folder.Name = "ESP_Container"
 ESP_Folder.Parent = CoreGui
 
+local IsAiming = false
+
+-- Fly переменные
+local flyBodyVelocity = nil
+local flyBodyGyro = nil
+local flyConnection = nil
+
+-- ========== ESP ==========
 local function GetTeamColor(player)
     if player == LocalPlayer then return nil end
     if Settings.TeamCheck then
@@ -92,8 +105,6 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ========== AIMBOT ==========
-local IsAiming = false
-
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
     if Settings.TeamCheck then
@@ -155,6 +166,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Settings.Aimbot_Key then
         IsAiming = true
+    elseif input.KeyCode == Settings.Fly_Key then
+        ToggleFly()
     end
 end)
 
@@ -179,6 +192,90 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- ========== FLY ==========
+local function EnableFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+
+    hum.PlatformStand = true
+
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    flyBodyVelocity.Parent = root
+
+    flyBodyGyro = Instance.new("BodyGyro")
+    flyBodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
+    flyBodyGyro.P = 1000
+    flyBodyGyro.D = 200
+    flyBodyGyro.CFrame = root.CFrame
+    flyBodyGyro.Parent = root
+
+    Settings.Fly_Enabled = true
+end
+
+local function DisableFly()
+    Settings.Fly_Enabled = false
+    if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
+    if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+local function ToggleFly()
+    if Settings.Fly_Enabled then
+        DisableFly()
+    else
+        EnableFly()
+    end
+end
+
+-- Цикл управления полётом
+flyConnection = RunService.Heartbeat:Connect(function()
+    if Settings.Fly_Enabled and LocalPlayer.Character then
+        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root and flyBodyVelocity and flyBodyGyro then
+            local move = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                move = move + Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                move = move - Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                move = move - Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                move = move + Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                move = move + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                move = move - Vector3.new(0, 1, 0)
+            end
+            if move.Magnitude > 0 then
+                move = move.Unit * Settings.Fly_Speed
+            end
+            flyBodyVelocity.Velocity = move
+            flyBodyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
+        end
+    end
+end)
+
+-- Отключаем полёт при респавне
+LocalPlayer.CharacterAdded:Connect(function()
+    if Settings.Fly_Enabled then
+        DisableFly()
+    end
+end)
+
 -- ========== ЗАПУСК ==========
-print("✅ ESP + Legit Aimbot загружены. Удерживайте U для наведения.")
-print("Настройки: TeamCheck =", Settings.TeamCheck, "FOV =", Settings.FOV, "Smoothness =", Settings.Smoothness)
+print("✅ ESP + Legit Aimbot + Fly загружены. Удерживайте U для аима, T для полёта.")
+print("Настройки: TeamCheck =", Settings.TeamCheck, "FOV =", Settings.FOV, "Smoothness =", Settings.Smoothness, "Fly Speed =", Settings.Fly_Speed)
