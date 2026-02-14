@@ -1,23 +1,8 @@
 --[[
-    ███████╗██╗  ██╗██████╗ ██╗     ███████╗██╗  ██╗██╗   ██╗██████╗ 
-    ██╔════╝╚██╗██╔╝██╔══██╗██║     ██╔════╝██║  ██║██║   ██║██╔══██╗
-    █████╗   ╚███╔╝ ██████╔╝██║     █████╗  ███████║██║   ██║██████╔╝
-    ██╔══╝   ██╔██╗ ██╔═══╝ ██║     ██╔══╝  ██╔══██║██║   ██║██╔══██╗
-    ███████╗██╔╝ ██╗██║     ███████╗███████╗██║  ██║╚██████╔╝██████╔╝
-    ╚══════╝╚═╝  ╚═╝╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ 
-    
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║                     ULTIMATE COMBAT HUB v2                       ║
-    ╠═══════════════════════════════════════════════════════════════════╣
-    ║  🔹 ESP: враги красные, союзники зелёные                         ║
-    ║  🔹 Aimbot (ПКМ) + Wallbang (B)                                  ║
-    ║  🔹 No Recoil (N)                                                ║
-    ║  🔹 Infinite Ammo (M)                                            ║
-    ║  🔹 Legit Fly (F)                                                ║
-    ║  🔹 Legit Speed (G)                                              ║
-    ║  🔹 Health Boost (H)                                             ║
-    ║  🔹 Teleport to Enemy (T)                                        ║
-    ╚═══════════════════════════════════════════════════════════════════╝
+    ESP + Legit Aimbot (клавиша U)
+    - ESP: враги красные, союзники зелёные
+    - Aimbot: плавное наведение на голову ближайшего врага при удержании U
+    - Настройки: TeamCheck, FOV, Smoothness
 ]]
 
 local Players = game:GetService("Players")
@@ -32,60 +17,48 @@ local Camera = workspace.CurrentCamera
 
 -- ========== НАСТРОЙКИ ==========
 local Settings = {
-    -- ESP всегда включён (разные цвета)
+    -- ESP
+    ESP_Enabled = true,
+    TeamCheck = true,          -- true = союзники зелёные, враги красные
+    
     -- Aimbot
     Aimbot_Enabled = true,
-    FOV = 200,
-    Wallbang = false,
-    
-    -- No Recoil
-    NoRecoil = false,
-    
-    -- Infinite Ammo
-    InfiniteAmmo = false,
-    
-    -- Fly
-    Fly_Enabled = false,
-    Fly_Speed = 50,
-    
-    -- Speed
-    Speed_Enabled = false,
-    Speed_Value = 32,
-    
-    -- Health Boost
-    Health_Enabled = false,
-    Health_Target = 9999,
-    
-    -- Teleport (активируется по кнопке)
+    Aimbot_Key = Enum.KeyCode.U,  -- клавиша активации (U)
+    FOV = 120,                     -- радиус в пикселях
+    Smoothness = 10,               -- чем больше, тем плавнее (1 = мгновенно)
 }
 
--- ========== ПЕРЕМЕННЫЕ ==========
+-- ========== ESP ==========
 local ESP_Folder = Instance.new("Folder")
 ESP_Folder.Name = "ESP_Container"
 ESP_Folder.Parent = CoreGui
 
-local IsAiming = false
-
--- Fly переменные
-local flyBodyVelocity, flyBodyGyro, flyConnection
--- Health переменные
-local healthConnection
-
--- ========== ESP (РАЗНЫЕ ЦВЕТА) ==========
 local function GetTeamColor(player)
     if player == LocalPlayer then return nil end
-    if not player.Team or not LocalPlayer.Team then
-        return BrickColor.new("Bright red")   -- нет команд – все красные
-    end
-    if player.Team == LocalPlayer.Team then
-        return BrickColor.new("Bright green") -- союзники зелёные
+    if Settings.TeamCheck then
+        if not player.Team or not LocalPlayer.Team then
+            return BrickColor.new("Bright red") -- если нет команд – все красные
+        end
+        if player.Team == LocalPlayer.Team then
+            return BrickColor.new("Bright green") -- союзники
+        else
+            return BrickColor.new("Bright red")   -- враги
+        end
     else
-        return BrickColor.new("Bright red")   -- враги красные
+        -- если TeamCheck выключен – все красные (кроме себя)
+        return BrickColor.new("Bright red")
     end
 end
 
 RunService.RenderStepped:Connect(function()
-    -- Удаляем все старые рамки
+    if not Settings.ESP_Enabled then
+        for _, child in pairs(ESP_Folder:GetChildren()) do
+            child:Destroy()
+        end
+        return
+    end
+
+    -- Удаляем старые рамки
     for _, child in pairs(ESP_Folder:GetChildren()) do
         child:Destroy()
     end
@@ -118,30 +91,32 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ========== AIMBOT (С WALLBANG) ==========
-local function IsVisible(character)
-    if Settings.Wallbang then return true end
-    local head = character:FindFirstChild("Head")
-    if not head then return false end
-    local origin = Camera.CFrame.Position
-    local direction = head.Position - origin
-    local ray = Ray.new(origin, direction.Unit * direction.Magnitude)
-    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
-    return hit and hit:IsDescendantOf(character)
+-- ========== AIMBOT ==========
+local IsAiming = false
+
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    if Settings.TeamCheck then
+        if not player.Team or not LocalPlayer.Team then return true end
+        return player.Team ~= LocalPlayer.Team
+    end
+    return true
 end
 
 local function GetTarget()
     if not Settings.Aimbot_Enabled then return nil end
     local mousePos = UserInputService:GetMouseLocation()
-    local closestPlayer, closestDist = nil, Settings.FOV
+    local closestPlayer = nil
+    local closestDist = Settings.FOV
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hum = player.Character:FindFirstChild("Humanoid")
-            if hum and hum.Health > 0 then
-                if IsVisible(player.Character) then
-                    local targetPart = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso") or player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Head")
-                    if targetPart then
-                        local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        if IsEnemy(player) then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    local head = char:FindFirstChild("Head")
+                    if head then
+                        local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
                         if onScreen then
                             local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
                             if dist < closestDist then
@@ -157,27 +132,34 @@ local function GetTarget()
     return closestPlayer
 end
 
-local function MoveMouse(targetX, targetY)
+local function MoveMouseSmooth(targetX, targetY)
     local current = UserInputService:GetMouseLocation()
-    local deltaX, deltaY = targetX - current.X, targetY - current.Y
+    local deltaX = targetX - current.X
+    local deltaY = targetY - current.Y
     if math.abs(deltaX) < 0.5 and math.abs(deltaY) < 0.5 then return end
+
+    local smooth = math.max(1, Settings.Smoothness)
+    local moveX = deltaX / smooth
+    local moveY = deltaY / smooth
+
     if mousemoverel then
-        mousemoverel(deltaX, deltaY)
+        mousemoverel(moveX, moveY)
     elseif syn and syn.input then
-        syn.input.MouseMove(deltaX, deltaY)
+        syn.input.MouseMove(moveX, moveY)
     elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(deltaX, deltaY, false)
+        VirtualInputManager:SendMouseMoveEvent(moveX, moveY, false)
     end
 end
 
 UserInputService.InputBegan:Connect(function(input, gp)
-    if not gp and input.UserInputType == Enum.UserInputType.MouseButton2 then
+    if gp then return end
+    if input.KeyCode == Settings.Aimbot_Key then
         IsAiming = true
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+    if input.KeyCode == Settings.Aimbot_Key then
         IsAiming = false
     end
 end)
@@ -185,372 +167,18 @@ end)
 RunService.RenderStepped:Connect(function()
     if IsAiming and Settings.Aimbot_Enabled then
         local target = GetTarget()
-        if target then
-            local char = target.Character
-            if char then
-                local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
-                if targetPart then
-                    local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                    if onScreen then
-                        MoveMouse(vec.X, vec.Y)
-                    end
+        if target and target.Character then
+            local head = target.Character:FindFirstChild("Head")
+            if head then
+                local vec, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    MoveMouseSmooth(vec.X, vec.Y)
                 end
             end
         end
     end
 end)
 
--- ========== NO RECOIL ==========
-local function ApplyNoRecoil()
-    if not Settings.NoRecoil then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool") or char:FindFirstChildWhichIsA("Tool")
-    if tool then
-        local props = {"Recoil", "Bloom", "Spread", "Deviation", "CameraRecoil", "RecoilMax", "RecoilMin", "Shake", "Sway"}
-        for _, prop in ipairs(props) do
-            pcall(function()
-                if tool:FindFirstChild(prop) then
-                    tool[prop].Value = 0
-                end
-                if tool[prop] ~= nil then
-                    tool[prop] = 0
-                end
-            end)
-        end
-    end
-end
-
--- ========== INFINITE AMMO ==========
-local function ApplyInfiniteAmmo()
-    if not Settings.InfiniteAmmo then return end
-    local char = LocalPlayer.Character
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool") or char:FindFirstChildWhichIsA("Tool")
-    if tool then
-        local ammoProps = {"Ammo", "CurrentAmmo", "Clip", "Magazine", "ReserveAmmo", "MaxAmmo"}
-        for _, prop in ipairs(ammoProps) do
-            pcall(function()
-                if tool:FindFirstChild(prop) then
-                    tool[prop].Value = 9999
-                end
-                if tool[prop] ~= nil then
-                    if type(tool[prop]) == "number" then
-                        tool[prop] = 9999
-                    end
-                end
-            end)
-        end
-        pcall(function()
-            if tool:FindFirstChild("Configuration") then
-                local cfg = tool.Configuration
-                if cfg:FindFirstChild("AmmoCount") then cfg.AmmoCount.Value = 9999 end
-                if cfg:FindFirstChild("MaxAmmo") then cfg.MaxAmmo.Value = 9999 end
-            end
-        end)
-    end
-end
-
--- ========== FLY ==========
-local function EnableFly()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
-    if not root or not hum then return end
-
-    hum.PlatformStand = true
-
-    flyBodyVelocity = Instance.new("BodyVelocity")
-    flyBodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    flyBodyVelocity.Parent = root
-
-    flyBodyGyro = Instance.new("BodyGyro")
-    flyBodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
-    flyBodyGyro.P = 1000
-    flyBodyGyro.D = 200
-    flyBodyGyro.CFrame = root.CFrame
-    flyBodyGyro.Parent = root
-
-    Settings.Fly_Enabled = true
-end
-
-local function DisableFly()
-    Settings.Fly_Enabled = false
-    if flyBodyVelocity then flyBodyVelocity:Destroy() flyBodyVelocity = nil end
-    if flyBodyGyro then flyBodyGyro:Destroy() flyBodyGyro = nil end
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then hum.PlatformStand = false end
-    end
-end
-
-local function ToggleFly()
-    if Settings.Fly_Enabled then DisableFly() else EnableFly() end
-end
-
--- Цикл полёта
-flyConnection = RunService.Heartbeat:Connect(function()
-    if Settings.Fly_Enabled and LocalPlayer.Character then
-        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if root and flyBodyVelocity and flyBodyGyro then
-            local move = Vector3.new()
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                move = move + Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                move = move - Camera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                move = move - Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                move = move + Camera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                move = move + Vector3.new(0, 1, 0)
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
-                move = move - Vector3.new(0, 1, 0)
-            end
-            if move.Magnitude > 0 then
-                move = move.Unit * Settings.Fly_Speed
-            end
-            flyBodyVelocity.Velocity = move
-            flyBodyGyro.CFrame = CFrame.lookAt(root.Position, root.Position + Camera.CFrame.LookVector)
-        end
-    end
-end)
-
--- ========== LEGIT SPEED ==========
-local function ApplySpeed()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-        hum.WalkSpeed = Settings.Speed_Enabled and Settings.Speed_Value or 16
-    end
-end
-
-local function ToggleSpeed()
-    Settings.Speed_Enabled = not Settings.Speed_Enabled
-    ApplySpeed()
-end
-
--- ========== HEALTH BOOST ==========
-local function ApplyHealth()
-    if not Settings.Health_Enabled then
-        if healthConnection then healthConnection:Disconnect() healthConnection = nil end
-        return
-    end
-    if healthConnection then return end
-    healthConnection = RunService.Heartbeat:Connect(function()
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                pcall(function() hum.Health = Settings.Health_Target end)
-            end
-        end
-    end)
-end
-
-local function ToggleHealth()
-    Settings.Health_Enabled = not Settings.Health_Enabled
-    ApplyHealth()
-end
-
--- ========== TELEPORT TO ENEMY ==========
-local function TeleportToEnemy()
-    local myChar = LocalPlayer.Character
-    if not myChar then return end
-    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
-
-    -- Ищем ближайшего врага (живого, видимого на экране, в пределах FOV 200)
-    local mousePos = UserInputService:GetMouseLocation()
-    local closestDist = 200
-    local target = nil
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            -- Определяем враг или нет (по цвету ESP, но для простоты используем условие: если команда отличается или нет команды)
-            local isEnemy = true
-            if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
-                isEnemy = false
-            end
-            if isEnemy then
-                local char = player.Character
-                if char then
-                    local hum = char:FindFirstChild("Humanoid")
-                    if hum and hum.Health > 0 then
-                        local targetPart = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Head")
-                        if targetPart then
-                            local vec, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                            if onScreen then
-                                local dist = (Vector2.new(vec.X, vec.Y) - mousePos).Magnitude
-                                if dist < closestDist then
-                                    closestDist = dist
-                                    target = player
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if target then
-        local targetChar = target.Character
-        local targetRoot = targetChar and (targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso"))
-        if targetRoot then
-            -- Телепортируемся над головой цели (чтобы упасть на него)
-            local teleportPos = targetRoot.Position + Vector3.new(0, 15, 0)
-            myRoot.CFrame = CFrame.new(teleportPos)
-            print("🔄 Телепорт к " .. target.Name)
-        end
-    else
-        print("⚠️ Нет цели в радиусе 200px")
-    end
-end
-
--- ========== УПРАВЛЕНИЕ КЛАВИШАМИ ==========
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        ToggleFly()
-    elseif input.KeyCode == Enum.KeyCode.G then
-        ToggleSpeed()
-    elseif input.KeyCode == Enum.KeyCode.H then
-        ToggleHealth()
-    elseif input.KeyCode == Enum.KeyCode.T then
-        TeleportToEnemy()
-    elseif input.KeyCode == Enum.KeyCode.B then
-        Settings.Wallbang = not Settings.Wallbang
-        print("🟢 Wallbang: " .. (Settings.Wallbang and "ON" or "OFF"))
-    elseif input.KeyCode == Enum.KeyCode.N then
-        Settings.NoRecoil = not Settings.NoRecoil
-        print("🟢 No Recoil: " .. (Settings.NoRecoil and "ON" or "OFF"))
-    elseif input.KeyCode == Enum.KeyCode.M then
-        Settings.InfiniteAmmo = not Settings.InfiniteAmmo
-        print("🟢 Infinite Ammo: " .. (Settings.InfiniteAmmo and "ON" or "OFF"))
-    end
-end)
-
--- Применяем эффекты в цикле
-RunService.Heartbeat:Connect(function()
-    ApplyNoRecoil()
-    ApplyInfiniteAmmo()
-end)
-
--- Сброс при респавне
-LocalPlayer.CharacterAdded:Connect(function()
-    if Settings.Fly_Enabled then DisableFly() end
-    ApplySpeed()
-    ApplyHealth()
-end)
-
--- ========== МЕНЮ (DRAWING) ==========
-local function CreateMenu()
-    -- Фон
-    local bg = Drawing.new("Square")
-    bg.Visible = true
-    bg.Color = Color3.fromRGB(30, 30, 40)
-    bg.Transparency = 0.9
-    bg.Size = Vector2.new(320, 360)
-    bg.Position = Vector2.new(50, 50)
-    bg.Filled = true
-    bg.ZIndex = 999
-
-    local title = Drawing.new("Text")
-    title.Visible = true
-    title.Color = Color3.fromRGB(255, 255, 0)
-    title.Position = Vector2.new(60, 55)
-    title.Text = "⚡ ULTIMATE HUB"
-    title.Size = 20
-    title.ZIndex = 1000
-
-    local closeBtn = Drawing.new("Text")
-    closeBtn.Visible = true
-    closeBtn.Color = Color3.new(1,0,0)
-    closeBtn.Position = Vector2.new(350, 55)
-    closeBtn.Text = "X"
-    closeBtn.Size = 20
-    closeBtn.ZIndex = 1000
-
-    local yPos = 85
-    local checkboxes = {}
-
-    local function AddCheckbox(text, keyName, getter, setter)
-        local box = Drawing.new("Square")
-        box.Visible = true
-        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
-        box.Size = Vector2.new(12,12)
-        box.Position = Vector2.new(60, yPos)
-        box.Filled = true
-        box.ZIndex = 1000
-
-        local lbl = Drawing.new("Text")
-        lbl.Visible = true
-        lbl.Color = Color3.new(1,1,1)
-        lbl.Position = Vector2.new(80, yPos-2)
-        lbl.Text = text .. " [" .. keyName .. "]"
-        lbl.Size = 14
-        lbl.ZIndex = 1000
-
-        table.insert(checkboxes, {box=box, lbl=lbl, y=yPos, get=getter, set=setter})
-        yPos = yPos + 25
-    end
-
-    AddCheckbox("Aimbot", "ПКМ", function() return Settings.Aimbot_Enabled end, function(v) Settings.Aimbot_Enabled = v end)
-    AddCheckbox("Wallbang", "B", function() return Settings.Wallbang end, function(v) Settings.Wallbang = v end)
-    AddCheckbox("No Recoil", "N", function() return Settings.NoRecoil end, function(v) Settings.NoRecoil = v end)
-    AddCheckbox("Infinite Ammo", "M", function() return Settings.InfiniteAmmo end, function(v) Settings.InfiniteAmmo = v end)
-    AddCheckbox("Legit Fly", "F", function() return Settings.Fly_Enabled end, function(v) if v then EnableFly() else DisableFly() end end)
-    AddCheckbox("Legit Speed", "G", function() return Settings.Speed_Enabled end, function(v) Settings.Speed_Enabled = v; ApplySpeed() end)
-    AddCheckbox("Health Boost", "H", function() return Settings.Health_Enabled end, function(v) Settings.Health_Enabled = v; ApplyHealth() end)
-
-    -- Телепорт отдельно (кнопка, не чекбокс)
-    local tpText = Drawing.new("Text")
-    tpText.Visible = true
-    tpText.Color = Color3.new(1,1,1)
-    tpText.Position = Vector2.new(60, yPos)
-    tpText.Text = "Teleport [T]"
-    tpText.Size = 14
-    tpText.ZIndex = 1000
-
-    -- Обработка кликов мыши
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local m = UserInputService:GetMouseLocation()
-            -- Проверяем клик по чекбоксам
-            for _, cb in ipairs(checkboxes) do
-                if m.X >= 50 and m.X <= 400 and m.Y >= cb.y-6 and m.Y <= cb.y+6 then
-                    if m.X >= 60 and m.X <= 72 then
-                        local new = not cb.get()
-                        cb.set(new)
-                        cb.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
-                    end
-                end
-            end
-            -- Клик по крестику
-            if m.X >= 350 and m.X <= 370 and m.Y >= 55 and m.Y <= 75 then
-                bg.Visible = false
-                title.Visible = false
-                closeBtn.Visible = false
-                tpText.Visible = false
-                for _, cb in ipairs(checkboxes) do
-                    cb.box.Visible = false
-                    cb.lbl.Visible = false
-                end
-            end
-        end
-    end)
-end
-
-CreateMenu()
-ApplySpeed()
-print("✅ Скрипт загружен. Меню в левом верхнем углу. Управление по клавишам.")
+-- ========== ЗАПУСК ==========
+print("✅ ESP + Legit Aimbot загружены. Удерживайте U для наведения.")
+print("Настройки: TeamCheck =", Settings.TeamCheck, "FOV =", Settings.FOV, "Smoothness =", Settings.Smoothness)
