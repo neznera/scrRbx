@@ -1,82 +1,69 @@
 --[[
-    Простой и плавный аимбот на голову (постоянно активен)
-    - Плавное наведение (регулируется Smoothness)
-    - TeamCheck (не цепляет своих)
-    - FOV (радиус действия на экране)
-    - Работает без нажатия клавиш
+    🔸 ЧИСТЫЙ ESP (только подсветка)
+    - Подсвечивает все BasePart каждого врага
+    - Рамки жёлтые, видны сквозь стены
+    - Настройка TeamCheck (вкл/выкл) в коде
+    - Работает в Defusal и других играх
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Camera = workspace.CurrentCamera
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
+
 local LocalPlayer = Players.LocalPlayer
 
--- Настройки (можно менять прямо здесь)
-local Settings = {
-    TeamCheck = true,           -- true = не наводиться на союзников
-    Smoothness = 0.2,           -- 0 = мгновенно, 0.5 = медленно, 1 = очень плавно
-    FOV = 200,                  -- радиус поиска цели на экране (в пикселях)
-}
+-- ===== НАСТРОЙКИ =====
+local TeamCheck = true   -- true = подсвечивать только врагов (не союзников), false = всех кроме себя
 
--- Проверка: враг ли?
+-- Папка для всех рамок (будет очищаться каждый кадр)
+local ESP_Folder = Instance.new("Folder")
+ESP_Folder.Name = "ESP_Container"
+ESP_Folder.Parent = CoreGui
+
+-- Функция определения врага
 local function IsEnemy(player)
     if player == LocalPlayer then return false end
-    if Settings.TeamCheck and player.Team and LocalPlayer.Team then
+    if TeamCheck then
+        if not player.Team or not LocalPlayer.Team then return true end
         return player.Team ~= LocalPlayer.Team
     end
     return true
 end
 
--- Поиск ближайшего врага с видимой головой
-local function GetClosestEnemy()
-    local mousePos = UserInputService:GetMouseLocation()
-    local closest = nil
-    local closestDist = Settings.FOV
+-- Главный цикл ESP (обновляется каждый кадр)
+RunService.RenderStepped:Connect(function()
+    -- Удаляем все старые рамки
+    for _, child in pairs(ESP_Folder:GetChildren()) do
+        child:Destroy()
+    end
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if IsEnemy(player) and player.Character then
-            local hum = player.Character:FindFirstChild("Humanoid")
-            local head = player.Character:FindFirstChild("Head")
-            if hum and hum.Health > 0 and head then
-                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                if onScreen then
-                    local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closest = head
+    -- Проходим по всем игрокам
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsEnemy(player) then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    -- Перебираем все части тела (даже вложенные)
+                    for _, part in pairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Transparency < 1 then
+                            local box = Instance.new("BoxHandleAdornment")
+                            box.Name = part.Name
+                            box.Adornee = part
+                            box.AlwaysOnTop = true
+                            box.ZIndex = 10
+                            box.Size = part.Size * 1.05
+                            box.Transparency = 0.3
+                            box.Color = BrickColor.new("Bright yellow")
+                            box.Parent = ESP_Folder
+                        end
                     end
                 end
             end
         end
     end
-    return closest
-end
-
--- Плавное движение мыши
-local function MoveMouseSmooth(targetX, targetY)
-    local current = UserInputService:GetMouseLocation()
-    local delta = Vector2.new(targetX - current.X, targetY - current.Y)
-    if delta.Magnitude < 1 then return end
-
-    local move = delta * Settings.Smoothness
-    -- Поддержка разных экзекуторов
-    if mousemoverel then
-        mousemoverel(move.X, move.Y)
-    elseif syn and syn.input then
-        syn.input.MouseMove(move.X, move.Y)
-    elseif VirtualInputManager then
-        VirtualInputManager:SendMouseMoveEvent(move.X, move.Y, false)
-    end
-end
-
--- Главный цикл (каждый кадр)
-RunService.RenderStepped:Connect(function()
-    local target = GetClosestEnemy()
-    if target then
-        local pos = Camera:WorldToViewportPoint(target.Position)
-        MoveMouseSmooth(pos.X, pos.Y)
-    end
 end)
 
-print("✅ Плавный аимбот на голову запущен. Настройки: TeamCheck = " .. tostring(Settings.TeamCheck) .. ", FOV = " .. Settings.FOV .. ", Smoothness = " .. Settings.Smoothness)
+print("✅ ESP загружен. TeamCheck = " .. tostring(TeamCheck))
