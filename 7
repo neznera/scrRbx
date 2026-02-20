@@ -1,7 +1,8 @@
 --[[
-    ТЕЛЕПОРТ НА ТОКЕНЫ С ЧЁРНЫМ СПИСКОМ
-    - Запоминает координаты фантомов и игнорирует их.
-    - Нажми T для запуска/остановки (можно удалить, если нужно автоматически).
+    ТЕЛЕПОРТ ТОЛЬКО НА СНЕЖИНКИ (ПО ЦВЕТУ) + ЧЁРНЫЙ СПИСОК
+    - Ищет объекты с именем "C" и цветом, близким к голубому.
+    - Запоминает координаты фантомов (которые не исчезают после телепорта).
+    - Нажми T для паузы/возобновления.
 ]]
 
 local Players = game:GetService("Players")
@@ -9,10 +10,20 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local TARGET_NAME = "C"
-local BLACKLIST = {}          -- таблица с координатами фантомов
-local ENABLED = true          -- флаг работы
+-- Цвет снежинки (из ваших данных)
+local SNOWFLAKE_COLOR = Color3.fromRGB(110, 244, 240) -- приблизительно 0.43,0.96,0.94
+local COLOR_TOLERANCE = 0.05   -- допуск по каждой компоненте цвета
+local BLACKLIST = {}           -- координаты фантомных токенов
+local ENABLED = true           -- флаг работы
 
--- Функция получения ключа по позиции
+-- Функция сравнения цветов с допуском
+local function colorClose(c1, c2)
+    return math.abs(c1.R - c2.R) < COLOR_TOLERANCE
+        and math.abs(c1.G - c2.G) < COLOR_TOLERANCE
+        and math.abs(c1.B - c2.B) < COLOR_TOLERANCE
+end
+
+-- Функция получения ключа по позиции (для чёрного списка)
 local function posKey(pos)
     return string.format("%.1f_%.1f_%.1f", pos.X, pos.Y, pos.Z)
 end
@@ -27,38 +38,41 @@ while ENABLED do
             local closest = nil
             local closestDist = math.huge
 
-            -- Поиск ближайшего токена не из чёрного списка
+            -- Поиск ближайшего подходящего токена
             for _, obj in pairs(workspace:GetDescendants()) do
                 if obj:IsA("BasePart") and obj.Name == TARGET_NAME and obj.Transparency == 0 then
-                    local key = posKey(obj.Position)
-                    if not BLACKLIST[key] then
-                        local dist = (obj.Position - myPos).Magnitude
-                        if dist < closestDist then
-                            closestDist = dist
-                            closest = obj
+                    -- Проверяем цвет
+                    if colorClose(obj.Color, SNOWFLAKE_COLOR) then
+                        local key = posKey(obj.Position)
+                        if not BLACKLIST[key] then
+                            local dist = (obj.Position - myPos).Magnitude
+                            if dist < closestDist then
+                                closestDist = dist
+                                closest = obj
+                            end
                         end
                     end
                 end
             end
 
+            -- Если нашли цель – телепортируемся
             if closest then
                 local pos = closest.Position
-                root.CFrame = CFrame.new(pos)   -- телепорт
-                task.wait(0.1)                  -- ждём, должен ли объект исчезнуть
+                root.CFrame = CFrame.new(pos)
+                task.wait(0.1)  -- небольшая пауза, чтобы объект успел исчезнуть (если он настоящий)
 
-                -- Если объект всё ещё существует — это фантом
+                -- Если объект всё ещё существует, значит это фантом – добавляем в чёрный список
                 if closest and closest.Parent then
-                    local key = posKey(pos)
-                    BLACKLIST[key] = true
-                    print("Фантом добавлен в чёрный список:", key)
+                    BLACKLIST[posKey(pos)] = true
+                    print("🚫 Фантом добавлен в чёрный список:", posKey(pos))
                 end
             end
         end
     end
-    task.wait(0.05)  -- небольшая пауза для производительности
+    task.wait(0.05)  -- частота проверок
 end
 
--- Управление: клавиша T для паузы/возобновления (по желанию)
+-- Управление паузой по клавише T
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.T then
@@ -67,4 +81,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("✅ Скрипт с чёрным списком запущен. Нажми T для паузы.")
+print("✅ Скрипт для снежинок загружен. Нажми T для паузы.")
