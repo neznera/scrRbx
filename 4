@@ -1,0 +1,19 @@
+-- Сканер объектов (выводит все подозрительные имена)
+while task.wait(3) do
+    print("=== Поиск токенов ===")
+    local found = false
+    for _, obj in pairs(workspace:GetDescendants()) do
+        local name = obj.Name:lower()
+        if name:find("token") or name:find("flake") or name:find("flake") then
+            print("Найден объект:")
+            print("  Имя:", obj.Name)
+            print("  Класс:", obj.ClassName)
+            print("  Путь:", obj:GetFullName())
+            print("---")
+            found = true
+        end
+    end
+    if not found then
+        print("Ничего похожего на токены не найдено.")
+    end
+end
