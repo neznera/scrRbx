@@ -1,0 +1,15 @@
+local bondFunc = game:GetService("ReplicatedStorage").Events.GetBondToLevel
+if bondFunc then
+    for slot = 1, 10 do
+        local success, result = pcall(function()
+            return bondFunc:InvokeServer(slot, 2) -- вторым аргументом пока оставим 2, как в сниффере
+        end)
+        if success and result then
+            print("Слот", slot, "уровень связи:", result)
+        else
+            print("Слот", slot, "не работает или ошибка")
+        end
+    end
+else
+    print("GetBondToLevel не найден")
+end
