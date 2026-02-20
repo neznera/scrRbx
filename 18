@@ -1,6 +1,6 @@
 local remote = game:GetService("ReplicatedStorage").Events.ItemUseCommand
 if remote then
-    remote:FireServer(1, "Treat", 1000000)
+    remote:FireServer(1, "Treat", 10000)
     print("✅ Запрос ItemUseCommand отправлен (1, 'Treat', 100000000)")
 else
     print("❌ ItemUseCommand не найден")
