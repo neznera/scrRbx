@@ -1,0 +1,316 @@
+--[[
+    ⚡ REMOTE EVENT EXPLOITER ⚡
+    - Сканирует все сервисы и находит RemoteEvent'ы и RemoteFunction'ы.
+    - Позволяет вызывать их с произвольными аргументами.
+    - Перехватывает и логирует все вызовы.
+    - Имеет меню для выбора и тестирования.
+    
+    Как использовать:
+    1. Запусти скрипт – появится меню.
+    2. Нажми "Scan" – будут найдены все Remote'ы.
+    3. Выбери нужный из списка (по номеру).
+    4. Введи аргументы (как Lua-таблицу) или оставь пустым.
+    5. Нажми "Fire" – Remote будет вызван.
+    6. В консоли (F9) увидишь результат и ответ (если есть).
+]]
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- Защита GUI
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
+
+-- ========== ПЕРЕМЕННЫЕ ==========
+local RemoteList = {}          -- список найденных Remote'ов
+local SelectedIndex = 1        -- выбранный индекс
+local ArgsInput = ""           -- строка с аргументами
+local Logs = {}                 -- история вызовов
+
+-- ========== ФУНКЦИЯ СКАНИРОВАНИЯ ==========
+local function ScanRemotes()
+    RemoteList = {}
+    local services = {
+        game:GetService("ReplicatedStorage"),
+        game:GetService("ServerStorage"),
+        game:GetService("ServerScriptService"),
+        game:GetService("Workspace"),
+        game:GetService("Players"),
+        game:GetService("Lighting"),
+        game
+    }
+    
+    -- Добавляем скрытые объекты (getnilinstances)
+    local hidden = getnilinstances()
+    for _, obj in pairs(hidden) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            table.insert(RemoteList, obj)
+        end
+    end
+    
+    for _, service in ipairs(services) do
+        for _, obj in pairs(service:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                table.insert(RemoteList, obj)
+            end
+        end
+    end
+    
+    print("✅ Найдено Remote'ов: " .. #RemoteList)
+    return #RemoteList
+end
+
+-- ========== ФУНКЦИЯ ВЫЗОВА REMOTE ==========
+local function FireRemote(index, argsTable)
+    local remote = RemoteList[index]
+    if not remote then
+        print("❌ Remote не найден")
+        return
+    end
+    
+    local success, result = pcall(function()
+        if remote:IsA("RemoteEvent") then
+            remote:FireServer(unpack(argsTable or {}))
+            return "RemoteEvent успешно вызван"
+        elseif remote:IsA("RemoteFunction") then
+            return remote:InvokeServer(unpack(argsTable or {}))
+        end
+    end)
+    
+    if success then
+        print("✅ Вызов Remote '" .. remote.Name .. "' выполнен")
+        if result then
+            print("📦 Ответ сервера:", typeof(result) == "string" and result or "сложный объект")
+        end
+        table.insert(Logs, {name = remote.Name, args = argsTable, success = true})
+    else
+        print("❌ Ошибка вызова:", result)
+        table.insert(Logs, {name = remote.Name, args = argsTable, success = false, error = result})
+    end
+end
+
+-- ========== ФУНКЦИЯ ПАРСИНГА АРГУМЕНТОВ ==========
+local function ParseArgs(input)
+    if input == "" then return {} end
+    local func, err = load("return " .. input)
+    if not func then
+        print("❌ Ошибка в аргументах:", err)
+        return nil
+    end
+    local success, result = pcall(func)
+    if success then
+        if type(result) ~= "table" then
+            result = {result}
+        end
+        return result
+    else
+        print("❌ Ошибка выполнения:", result)
+        return nil
+    end
+end
+
+-- ========== МЕНЮ (DRAWING) ==========
+local function CreateMenu()
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 40)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(450, 400)
+    bg.Position = Vector2.new(100, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.fromRGB(255, 255, 0)
+    title.Position = Vector2.new(120, 55)
+    title.Text = "⚡ REMOTE EXPLOITER"
+    title.Size = 20
+    title.ZIndex = 1000
+
+    local closeBtn = Drawing.new("Text")
+    closeBtn.Visible = true
+    closeBtn.Color = Color3.new(1,0,0)
+    closeBtn.Position = Vector2.new(530, 55)
+    closeBtn.Text = "X"
+    closeBtn.Size = 20
+    closeBtn.ZIndex = 1000
+
+    -- Кнопки интерфейса (текстовые)
+    local scanBtn = Drawing.new("Text")
+    scanBtn.Visible = true
+    scanBtn.Color = Color3.fromRGB(100, 200, 255)
+    scanBtn.Position = Vector2.new(120, 85)
+    scanBtn.Text = "🔍 SCAN (нажми здесь)"
+    scanBtn.Size = 16
+    scanBtn.ZIndex = 1000
+
+    local fireBtn = Drawing.new("Text")
+    fireBtn.Visible = true
+    fireBtn.Color = Color3.fromRGB(100, 255, 100)
+    fireBtn.Position = Vector2.new(120, 115)
+    fireBtn.Text = "🔥 FIRE SELECTED"
+    fireBtn.Size = 16
+    fireBtn.ZIndex = 1000
+
+    local prevBtn = Drawing.new("Text")
+    prevBtn.Visible = true
+    prevBtn.Color = Color3.fromRGB(200, 200, 200)
+    prevBtn.Position = Vector2.new(120, 145)
+    prevBtn.Text = "⬅️ PREV"
+    prevBtn.Size = 14
+    prevBtn.ZIndex = 1000
+
+    local nextBtn = Drawing.new("Text")
+    nextBtn.Visible = true
+    nextBtn.Color = Color3.fromRGB(200, 200, 200)
+    nextBtn.Position = Vector2.new(200, 145)
+    nextBtn.Text = "➡️ NEXT"
+    nextBtn.Size = 14
+    nextBtn.ZIndex = 1000
+
+    -- Информация о выбранном Remote
+    local selectedInfo = Drawing.new("Text")
+    selectedInfo.Visible = true
+    selectedInfo.Color = Color3.new(1,1,1)
+    selectedInfo.Position = Vector2.new(120, 175)
+    selectedInfo.Text = "Selected: none"
+    selectedInfo.Size = 14
+    selectedInfo.ZIndex = 1000
+
+    -- Поле ввода аргументов
+    local argsLabel = Drawing.new("Text")
+    argsLabel.Visible = true
+    argsLabel.Color = Color3.new(1,1,1)
+    argsLabel.Position = Vector2.new(120, 205)
+    argsLabel.Text = "Args (Lua table):"
+    argsLabel.Size = 14
+    argsLabel.ZIndex = 1000
+
+    local argsField = Drawing.new("Text")
+    argsField.Visible = true
+    argsField.Color = Color3.fromRGB(255, 255, 100)
+    argsField.Position = Vector2.new(120, 225)
+    argsField.Text = ""
+    argsField.Size = 14
+    argsField.ZIndex = 1000
+
+    -- Список логов (последние 5)
+    local logTitle = Drawing.new("Text")
+    logTitle.Visible = true
+    logTitle.Color = Color3.new(1,1,1)
+    logTitle.Position = Vector2.new(120, 260)
+    logTitle.Text = "📜 Logs:"
+    logTitle.Size = 14
+    logTitle.ZIndex = 1000
+
+    local logLines = {}
+    for i = 1, 5 do
+        logLines[i] = Drawing.new("Text")
+        logLines[i].Visible = true
+        logLines[i].Color = Color3.new(0.8,0.8,0.8)
+        logLines[i].Position = Vector2.new(120, 280 + (i-1)*20)
+        logLines[i].Text = ""
+        logLines[i].Size = 12
+        logLines[i].ZIndex = 1000
+    end
+
+    -- Обработка кликов
+    local function updateDisplay()
+        if #RemoteList > 0 then
+            local r = RemoteList[SelectedIndex]
+            selectedInfo.Text = string.format("Selected %d/%d: %s (%s)", SelectedIndex, #RemoteList, r.Name, r.ClassName)
+        else
+            selectedInfo.Text = "Selected: none (scan first)"
+        end
+        argsField.Text = ArgsInput
+        -- Обновляем логи
+        for i = 1, 5 do
+            local idx = #Logs - i + 1
+            if idx >= 1 then
+                local entry = Logs[idx]
+                local status = entry.success and "✅" or "❌"
+                logLines[i].Text = string.format("%s %s(%s)", status, entry.name, tostring(entry.args))
+            else
+                logLines[i].Text = ""
+            end
+        end
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 100 and m.X <= 550 and m.Y >= 50 and m.Y <= 450 then
+                -- Кнопка SCAN
+                if m.X >= 120 and m.X <= 300 and m.Y >= 85 and m.Y <= 100 then
+                    local count = ScanRemotes()
+                    SelectedIndex = 1
+                    updateDisplay()
+                end
+                -- Кнопка FIRE
+                if m.X >= 120 and m.X <= 300 and m.Y >= 115 and m.Y <= 130 then
+                    if #RemoteList > 0 then
+                        local args = ParseArgs(ArgsInput)
+                        if args ~= nil then
+                            FireRemote(SelectedIndex, args)
+                            updateDisplay()
+                        end
+                    end
+                end
+                -- Кнопка PREV
+                if m.X >= 120 and m.X <= 170 and m.Y >= 145 and m.Y <= 160 then
+                    if #RemoteList > 0 then
+                        SelectedIndex = (SelectedIndex - 2) % #RemoteList + 1
+                        updateDisplay()
+                    end
+                end
+                -- Кнопка NEXT
+                if m.X >= 200 and m.X <= 250 and m.Y >= 145 and m.Y <= 160 then
+                    if #RemoteList > 0 then
+                        SelectedIndex = SelectedIndex % #RemoteList + 1
+                        updateDisplay()
+                    end
+                end
+                -- Закрытие
+                if m.X >= 530 and m.X <= 550 and m.Y >= 55 and m.Y <= 75 then
+                    bg.Visible = false
+                    title.Visible = false
+                    closeBtn.Visible = false
+                    scanBtn.Visible = false
+                    fireBtn.Visible = false
+                    prevBtn.Visible = false
+                    nextBtn.Visible = false
+                    selectedInfo.Visible = false
+                    argsLabel.Visible = false
+                    argsField.Visible = false
+                    logTitle.Visible = false
+                    for _, line in ipairs(logLines) do line.Visible = false end
+                end
+            end
+        end
+        -- Ввод текста для аргументов
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            if input.KeyCode == Enum.KeyCode.Backspace then
+                ArgsInput = ArgsInput:sub(1, -2)
+            elseif input.KeyCode == Enum.KeyCode.Return then
+                -- ничего
+            else
+                local char = input.KeyCode.Name
+                if #char == 1 then
+                    ArgsInput = ArgsInput .. char
+                end
+            end
+            updateDisplay()
+        end
+    end)
+
+    -- Регулярное обновление
+    RunService.Heartbeat:Connect(updateDisplay)
+end
+
+-- ========== ЗАПУСК ==========
+CreateMenu()
+print("⚡ Remote Exploiter загружен. Используй меню для сканирования и вызова Remote'ов.")
