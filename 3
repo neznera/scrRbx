@@ -1,7 +1,7 @@
 --[[
-    ИДЕНТИФИКАТОР ОБЪЕКТОВ ПОД КУРСОРОМ
-    - Объект под курсором подсвечивается белым.
-    - Нажми левую кнопку мыши, чтобы получить информацию.
+    ПОДРОБНЫЙ АНАЛИЗ ОБЪЕКТА ПОД КУРСОРОМ
+    - Наведись на объект (подсветка) и нажми ЛКМ.
+    - В консоли (F9) появится полная информация.
 ]]
 
 local Players = game:GetService("Players")
@@ -13,7 +13,6 @@ local Mouse = LocalPlayer:GetMouse()
 local currentHighlight = nil
 local lastTarget = nil
 
--- Функция для подсветки объекта
 local function highlightObject(obj)
     if currentHighlight then
         currentHighlight:Destroy()
@@ -22,18 +21,16 @@ local function highlightObject(obj)
     if obj then
         local highlight = Instance.new("Highlight")
         highlight.Adornee = obj
-        highlight.FillColor = Color3.fromRGB(255, 255, 255)   -- белая заливка
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)
         highlight.FillTransparency = 0.5
         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.OutlineTransparency = 0
         highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        -- Помещаем подсветку в CoreGui, чтобы она была видна всегда
         highlight.Parent = game:GetService("CoreGui")
         currentHighlight = highlight
     end
 end
 
--- Отслеживание объекта под курсором
 RunService.RenderStepped:Connect(function()
     local target = Mouse.Target
     if target ~= lastTarget then
@@ -42,27 +39,40 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Обработка клика левой кнопкой
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        local target = Mouse.Target
+        local target = lastTarget
         if target then
-            -- Вычисляем расстояние до объекта
             local char = LocalPlayer.Character
             local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
-            local dist = root and (target.Position - root.Position).Magnitude or "неизвестно"
-
-            print("--- ИНФОРМАЦИЯ ОБ ОБЪЕКТЕ ---")
-            print("Имя: " .. target.Name)
-            print("Класс: " .. target.ClassName)
-            print("Полный путь: " .. target:GetFullName())
-            print("Расстояние: " .. (type(dist) == "number" and string.format("%.1f stud", dist) or dist))
-            print("------------------------------")
+            local dist = root and (target:IsA("BasePart") and (target.Position - root.Position).Magnitude or "N/A") or "N/A"
+            print("========== ПОДРОБНАЯ ИНФОРМАЦИЯ ==========")
+            print("Имя:", target.Name)
+            print("Класс:", target.ClassName)
+            print("Полный путь:", target:GetFullName())
+            print("Расстояние:", type(dist) == "number" and string.format("%.1f stud", dist) or dist)
+            if target:IsA("BasePart") then
+                print("Позиция:", tostring(target.Position))
+                print("Прозрачность (Transparency):", target.Transparency)
+                print("Может сталкиваться (CanCollide):", target.CanCollide)
+                print("Закреплён (Anchored):", target.Anchored)
+                print("Материал (Material):", target.Material.Name)
+                print("Размер (Size):", tostring(target.Size))
+                print("Цвет (Color):", tostring(target.Color))
+                print("Отражение (Reflectance):", target.Reflectance)
+                -- Вывод атрибутов, если есть
+                local attrs = target:GetAttributes()
+                for k, v in pairs(attrs) do
+                    print("Атрибут:", k, "=", tostring(v))
+                end
+            end
+            print("Родитель:", target.Parent and target.Parent.Name or "nil")
+            print("============================================")
         else
             print("Под курсором нет объекта.")
         end
     end
 end)
 
-print("✅ Скрипт загружен. Наводись на объекты (они подсвечиваются) и нажимай левую кнопку мыши для получения информации.")
+print("✅ Анализатор загружен. Наводись на объект и кликай ЛКМ.")
