@@ -1,60 +1,79 @@
 --[[
-    БЫСТРАЯ ТЕЛЕПОРТАЦИЯ НА СНЕЖИНКУ (Snowflake)
-    Инструкция:
-    1. Запустите скрипт.
-    2. Нажмите клавишу "T" для телепортации к ближайшей снежинке.
-    3. Скрипт будет искать снежинки в радиусе 1000 блоков.
+    БЫСТРАЯ ТЕЛЕПОРТАЦИЯ НА СНЕЖИНКУ ИЛИ ТОКЕН (Bee Swarm Simulator)
+    - Телепортирует на ближайший объект (снежинку или токен) по нажатию T.
+    - Ищет объекты с именами: Snowflake, Token, SnowflakeToken (настройте под игру).
+    - Мгновенная телепортация без задержки.
+    - После телепортации автоматически пытается собрать токен (если это он).
 ]]
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- Настройки
-local TELEPORT_KEY = Enum.KeyCode.T  -- Клавиша для телепорта
-local SEARCH_RADIUS = 1000            -- Радиус поиска снежинок
+local TELEPORT_KEY = Enum.KeyCode.T
+local SEARCH_RADIUS = 1000
 
--- Функция для телепортации
-local function TeleportToSnowflake()
+-- Список имён объектов для поиска (добавьте все варианты)
+local TARGET_NAMES = {
+    "Snowflake",
+    "Token",
+    "SnowflakeToken",
+    "HoneyToken",  -- возможно, есть и другие токены
+    "GingerbreadHouse",
+    -- добавьте другие названия по необходимости
+}
+
+-- Функция телепортации
+local function TeleportToTarget()
     local character = LocalPlayer.Character
     if not character then return end
 
     local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
     if not rootPart then return end
 
-    -- Поиск всех объектов с именем "Snowflake" в игровом мире
-    local snowflakes = workspace:FindFirstChild("Snowflakes") or workspace:GetDescendants() -- Адаптируйте под структуру игры
-    local target = nil
+    local closestTarget = nil
     local closestDist = SEARCH_RADIUS
 
-    -- Перебираем объекты в поисках снежинки
-    for _, obj in pairs(snowflakes) do
-        if obj.Name:lower():find("snowflake") and obj:IsA("BasePart") then
-            local dist = (obj.Position - rootPart.Position).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                target = obj
+    -- Поиск объектов по всем потомкам workspace
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            for _, name in ipairs(TARGET_NAMES) do
+                if obj.Name:find(name) then  -- частичное совпадение имени
+                    local dist = (obj.Position - rootPart.Position).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closestTarget = obj
+                        break
+                    end
+                end
             end
         end
     end
 
-    if target then
-        -- Мгновенная телепортация (без задержки)
-        rootPart.CFrame = CFrame.new(target.Position + Vector3.new(0, 5, 0))  -- Поднимаем на 5 блоков выше
-        print("✅ Телепорт на снежинку!")
+    if closestTarget then
+        -- Мгновенная телепортация на объект
+        rootPart.CFrame = CFrame.new(closestTarget.Position + Vector3.new(0, 5, 0))
+        print("✅ Телепорт на:", closestTarget.Name)
+
+        -- Дополнительно: через мгновение пытаемся собрать токен (эмулируем касание)
+        -- Можно просто ничего не делать, т.к. мы уже рядом, токен должен подобраться автоматически при следующем Heartbeat.
+        -- Если нет, можно добавить небольшую задержку для гарантии:
+        task.wait(0.05) -- небольшая пауза, чтобы физика обновилась
+        -- Ничего больше не нужно, игра сама подберёт токен.
     else
-        print("❌ Снежинка не найдена.")
+        print("❌ Цель не найдена в радиусе", SEARCH_RADIUS)
     end
 end
 
--- Назначаем клавишу для телепортации
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+-- Назначаем клавишу
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
     if input.KeyCode == TELEPORT_KEY then
-        TeleportToSnowflake()
+        TeleportToTarget()
     end
 end)
 
-print("✅ Скрипт телепортации загружен. Нажмите T для прыжка на снежинку.")
+print("✅ Скрипт загружен. Нажми T для телепортации на ближайший объект.")
