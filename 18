@@ -1,7 +1,7 @@
-local remote = game:GetService("ReplicatedStorage").Events.ItemUseCommand
+local remote = game:GetService("ReplicatedStorage").Events.BeeLevelUp
 if remote then
-    remote:FireServer(1, "Treat", 10000)
-    print("✅ Запрос ItemUseCommand отправлен (1, 'Treat', 100000000)")
+    remote:FireServer(1, 100000000, "Treat")
+    print("✅ Запрос BeeLevelUp отправлен (1, 100000000, 'Treat')")
 else
-    print("❌ ItemUseCommand не найден")
+    print("❌ BeeLevelUp не найден")
 end
