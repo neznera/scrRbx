@@ -70,7 +70,7 @@ while ENABLED do
             if closest then
                 local pos = closest.Position
                 root.CFrame = CFrame.new(pos)
-                task.wait(0.1)  -- ждём, должен ли объект исчезнуть
+                task.wait(0.23)  -- ждём, должен ли объект исчезнуть
 
                 -- Если объект всё ещё существует — это фантомная снежинка
                 if closest and closest.Parent then
