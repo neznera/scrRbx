@@ -1,88 +1,68 @@
 --[[
-    РАСШИРЕННЫЙ ПОИСК ОБЪЕКТОВ РЯДОМ (без ошибок)
-    - Нажми T, чтобы увидеть ВСЕ объекты в радиусе 20 студий.
-    - Работает с BasePart и Model (даже без PrimaryPart).
+    ИДЕНТИФИКАТОР ОБЪЕКТОВ ПОД КУРСОРОМ
+    - Объект под курсором подсвечивается белым.
+    - Нажми левую кнопку мыши, чтобы получить информацию.
 ]]
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
-local SEARCH_RADIUS = 20
-local KEY = Enum.KeyCode.T
+local currentHighlight = nil
+local lastTarget = nil
 
-local function FindNearbyObjects()
-    local character = LocalPlayer.Character
-    if not character then
-        print("❌ Персонаж не найден")
-        return
+-- Функция для подсветки объекта
+local function highlightObject(obj)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
     end
-
-    local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-    if not rootPart then
-        print("❌ Корневая часть не найдена")
-        return
+    if obj then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = obj
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)   -- белая заливка
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        -- Помещаем подсветку в CoreGui, чтобы она была видна всегда
+        highlight.Parent = game:GetService("CoreGui")
+        currentHighlight = highlight
     end
-
-    local center = rootPart.Position
-    local found = {}
-
-    -- Перебираем все объекты в workspace (игнорируем части игрока)
-    for _, obj in pairs(workspace:GetDescendants()) do
-        -- Пытаемся получить позицию объекта
-        local pos = nil
-
-        if obj:IsA("BasePart") then
-            pos = obj.Position
-        elseif obj:IsA("Model") then
-            -- Если есть PrimaryPart, используем его позицию
-            if obj.PrimaryPart then
-                pos = obj.PrimaryPart.Position
-            else
-                -- Иначе пробуем получить ограничивающую рамку модели
-                local success, cframe = pcall(function()
-                    return obj:GetBoundingBox()
-                end)
-                if success and cframe then
-                    pos = cframe.Position
-                end
-            end
-        end
-
-        -- Если удалось получить позицию и объект не принадлежит персонажу
-        if pos and obj:IsDescendantOf(character) == false then
-            local dist = (pos - center).Magnitude
-            if dist <= SEARCH_RADIUS then
-                table.insert(found, {
-                    Name = obj.Name,
-                    Class = obj.ClassName,
-                    Path = obj:GetFullName(),
-                    Distance = dist,
-                })
-            end
-        end
-    end
-
-    -- Вывод результатов
-    print("\n=== ОБЪЕКТЫ РЯДОМ (радиус " .. SEARCH_RADIUS .. " stud) ===")
-    if #found == 0 then
-        print("Ничего не найдено")
-    else
-        -- Сортируем по расстоянию
-        table.sort(found, function(a, b) return a.Distance < b.Distance end)
-        for i, item in ipairs(found) do
-            print(string.format("%d. %s (%s) — %.1f stud", i, item.Name, item.Class, item.Distance))
-            print("   Путь: " .. item.Path)
-        end
-    end
-    print("=====================================\n")
 end
 
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == KEY then
-        FindNearbyObjects()
+-- Отслеживание объекта под курсором
+RunService.RenderStepped:Connect(function()
+    local target = Mouse.Target
+    if target ~= lastTarget then
+        lastTarget = target
+        highlightObject(target)
     end
 end)
 
-print("✅ Ра2с22 сканер загружен. Нажми T для поиска объектов рядом.")
+-- Обработка клика левой кнопкой
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local target = Mouse.Target
+        if target then
+            -- Вычисляем расстояние до объекта
+            local char = LocalPlayer.Character
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+            local dist = root and (target.Position - root.Position).Magnitude or "неизвестно"
+
+            print("--- ИНФОРМАЦИЯ ОБ ОБЪЕКТЕ ---")
+            print("Имя: " .. target.Name)
+            print("Класс: " .. target.ClassName)
+            print("Полный путь: " .. target:GetFullName())
+            print("Расстояние: " .. (type(dist) == "number" and string.format("%.1f stud", dist) or dist))
+            print("------------------------------")
+        else
+            print("Под курсором нет объекта.")
+        end
+    end
+end)
+
+print("✅ Скрипт загружен. Наводись на объекты (они подсвечиваются) и нажимай левую кнопку мыши для получения информации.")
