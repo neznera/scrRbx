@@ -1,0 +1,16 @@
+-- Сниффер Remote'ов (логирует все вызовы)
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if method == "FireServer" or method == "InvokeServer" then
+        local args = {...}
+        print("🔥 Remote вызван:", self.Name)
+        print("   Метод:", method)
+        print("   Аргументы:", unpack(args))
+        print("   Путь:", self:GetFullName())
+        print("---")
+    end
+    return oldNamecall(self, ...)
+end)
+
+print("Сниффер запущен. Теперь покорми пчелу вручную (используй treat).")
