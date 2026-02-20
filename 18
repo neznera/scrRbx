@@ -1,0 +1,57 @@
+-- Тестируем ReplicatedStorage.Events.ItemUseCommand (RemoteEvent)
+local itemUse = game:GetService("ReplicatedStorage").Events.ItemUseCommand
+if itemUse then
+    print("🔍 Тестируем ItemUseCommand")
+    
+    -- Вариант 1: слот пчелы и количество (предположим, treat по умолчанию)
+    local success, err = pcall(function() itemUse:FireServer(1, 1000000) end)
+    print("  Вариант (1, 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 2: слот, ID предмета ("Treat"), количество
+    success, err = pcall(function() itemUse:FireServer(1, "Treat", 1000000) end)
+    print("  Вариант (1, 'Treat', 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 3: ID предмета, слот, количество
+    success, err = pcall(function() itemUse:FireServer("Treat", 1, 1000000) end)
+    print("  Вариант ('Treat', 1, 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 4: только количество (может, предмет уже выбран)
+    success, err = pcall(function() itemUse:FireServer(1000000) end)
+    print("  Вариант (1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+else
+    print("❌ ItemUseCommand не найден")
+end
+
+-- Тестируем ReplicatedStorage.Events.BeeLevelUp (RemoteEvent)
+local beeLevel = game:GetService("ReplicatedStorage").Events.BeeLevelUp
+if beeLevel then
+    print("\n🔍 Тестируем BeeLevelUp")
+    
+    -- Вариант 1: слот, количество
+    local success, err = pcall(function() beeLevel:FireServer(1, 1000000) end)
+    print("  Вариант (1, 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 2: слот, количество, тип (может быть "Treat")
+    success, err = pcall(function() beeLevel:FireServer(1, 1000000, "Treat") end)
+    print("  Вариант (1, 1000000, 'Treat'):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 3: только слот (возможно, использует все treats)
+    success, err = pcall(function() beeLevel:FireServer(1) end)
+    print("  Вариант (1):", success and "OK" or "Ошибка: " .. tostring(err))
+    
+    -- Вариант 4: слот, количество, что-то ещё (например, 2 как в GetBondToLevel)
+    success, err = pcall(function() beeLevel:FireServer(1, 1000000, 2) end)
+    print("  Вариант (1, 1000000, 2):", success and "OK" or "Ошибка: " .. tostring(err))
+else
+    print("❌ BeeLevelUp не найден")
+end
+
+-- Тестируем PlayerPurchase (на всякий случай)
+local purchase = game:GetService("ReplicatedStorage").Events.PlayerPurchase
+if purchase then
+    print("\n🔍 Тестируем PlayerPurchase")
+    local success, err = pcall(function() purchase:FireServer("Treat", 1000000) end)
+    print("  Вариант ('Treat', 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+    success, err = pcall(function() purchase:FireServer(1, 1000000) end)
+    print("  Вариант (1, 1000000):", success and "OK" or "Ошибка: " .. tostring(err))
+end
