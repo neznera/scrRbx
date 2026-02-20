@@ -1,55 +1,48 @@
 --[[
-    АВТОМАТИЧЕСКАЯ ТЕЛЕПОРТАЦИЯ НА ТОКЕНЫ (ИМЯ "C")
-    - Постоянно ищет ближайший объект с именем "C".
-    - Мгновенно телепортирует персонажа прямо в центр объекта.
-    - Работает без остановки, пока скрипт запущен.
-    - Для остановки просто закройте игру или удалите скрипт.
+    АВТОМАТИЧЕСКАЯ ТЕЛЕПОРТАЦИЯ НА ТОКЕНЫ "C"
+    - Ищет все объекты с именем "C" и прозрачностью 0.
+    - Мгновенно перемещает персонажа в центр ближайшего.
+    - Работает непрерывно.
 ]]
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- НАСТРОЙКИ
-local TARGET_NAME = "C"                     -- имя токена (как у вас)
-local TELEPORT_OFFSET = Vector3.new(0, 0, 0) -- можно добавить смещение, если надо
+-- Имя цели (как в выводе)
+local TARGET_NAME = "C"
 
--- Функция поиска ближайшего объекта с нужным именем
-local function getClosestTarget()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then return nil end
-    local myPos = root.Position
-
-    local closestObj = nil
-    local closestDist = math.huge
-
-    -- Перебираем все объекты в workspace
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name == TARGET_NAME then
-            local dist = (obj.Position - myPos).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                closestObj = obj
-            end
-        end
-    end
-    return closestObj
+-- Функция проверки, активен ли токен (прозрачность 0)
+local function isActive(obj)
+    return obj:IsA("BasePart") and obj.Name == TARGET_NAME and obj.Transparency == 0
 end
 
--- Главный цикл телепортации
+-- Основной цикл
 while true do
-    local target = getClosestTarget()
-    if target then
-        local char = LocalPlayer.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-            if root then
-                -- Мгновенное перемещение в центр токена
-                root.CFrame = CFrame.new(target.Position + TELEPORT_OFFSET)
+    local char = LocalPlayer.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+        if root then
+            local myPos = root.Position
+            local closest = nil
+            local closestDist = math.huge
+
+            -- Перебираем всё, что есть в workspace
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if isActive(obj) then
+                    local dist = (obj.Position - myPos).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        closest = obj
+                    end
+                end
+            end
+
+            if closest then
+                -- Мгновенная телепортация прямо в центр токена
+                root.CFrame = CFrame.new(closest.Position)
             end
         end
     end
-    -- Небольшая задержка, чтобы не нагружать процессор (можно убрать, но тогда нагрузка будет 100%)
-    task.wait()
+    -- Небольшая пауза, чтобы не нагружать процессор (можно уменьшить до 0.01)
+    task.wait(0.03)
 end
