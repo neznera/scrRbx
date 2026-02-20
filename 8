@@ -1,1 +1,305 @@
+--[[
+    🐝 BEE COMMANDER — Управление пчёлами
+    - P: притянуть всех пчёл к себе
+    - M: атаковать ближайшего моба
+    - Меню: автоследование, подсветка, настройки
+]]
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ========== НАСТРОЙКИ (можно менять через меню) ==========
+local Settings = {
+    AutoAttract = false,        -- автоматически притягивать пчёл
+    BeeHighlight = true,         -- подсвечивать пчёл синим
+    AttractKey = Enum.KeyCode.P,
+    AttackKey = Enum.KeyCode.M,
+    BeeFolderPath = "workspace.Bees",  -- путь к папке с пчёлами (по умолчанию)
+}
+
+-- ========== ПЕРЕМЕННЫЕ ==========
+local Bees = {}                  -- список пчёл игрока
+local HighlightFolder = Instance.new("Folder")
+HighlightFolder.Name = "BeeHighlights"
+HighlightFolder.Parent = CoreGui
+
+-- ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ПАПКИ ПО ПУТИ ==========
+local function getFolderFromPath(path)
+    local success, result = pcall(function()
+        return loadstring("return " .. path)()
+    end)
+    if success and result then
+        return result
+    end
+    return nil
+end
+
+-- ========== ПОИСК ПЧЁЛ ИГРОКА ==========
+local function FindMyBees()
+    local beeFolder = getFolderFromPath(Settings.BeeFolderPath)
+    if not beeFolder then
+        -- Если путь неверный, пробуем стандартные места
+        beeFolder = workspace:FindFirstChild("Bees") or workspace:FindFirstChild("BeeFolder")
+    end
+    if not beeFolder then return {} end
+
+    local myBees = {}
+    -- В Bee Swarm пчёлы обычно модели с именем "Bee" или содержащим "Bee"
+    for _, obj in pairs(beeFolder:GetChildren()) do
+        if obj:IsA("Model") and obj.Name:find("Bee") then
+            -- Проверяем, принадлежит ли пчела игроку (часто есть атрибут "Owner")
+            local owner = obj:GetAttribute("Owner")
+            if owner == LocalPlayer.UserId then
+                table.insert(myBees, obj)
+            elseif obj.Parent and obj.Parent.Name == LocalPlayer.Name then
+                table.insert(myBees, obj)
+            end
+        end
+    end
+    return myBees
+end
+
+-- ========== ОБНОВЛЕНИЕ СПИСКА ПЧЁЛ ==========
+local function UpdateBees()
+    Bees = FindMyBees()
+end
+
+-- ========== ПРИТЯНУТЬ ВСЕХ ПЧЁЛ ==========
+local function AttractBees()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    for _, bee in ipairs(Bees) do
+        if bee and bee.PrimaryPart then
+            bee:SetPrimaryPartCFrame(CFrame.new(root.Position + Vector3.new(0, 5, 0)))
+        end
+    end
+    print("🐝 Пчёлы притянуты!")
+end
+
+-- ========== АТАКА БЛИЖАЙШЕГО МОБА ==========
+local function AttackNearestMob()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    -- Поиск ближайшего моба (объект с Humanoid, не игрок)
+    local nearestMob = nil
+    local minDist = math.huge
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then
+            local hum = obj:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 and not Players:GetPlayerFromCharacter(obj) then
+                local mobRoot = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso")
+                if mobRoot then
+                    local dist = (mobRoot.Position - root.Position).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        nearestMob = mobRoot
+                    end
+                end
+            end
+        end
+    end
+
+    if nearestMob then
+        for _, bee in ipairs(Bees) do
+            if bee and bee.PrimaryPart then
+                bee:SetPrimaryPartCFrame(CFrame.new(nearestMob.Position))
+            end
+        end
+        print("🐝 Пчёлы атакуют!")
+    else
+        print("❌ Моб не найден")
+    end
+end
+
+-- ========== ПОДСВЕТКА ПЧЁЛ ==========
+local function UpdateHighlights()
+    -- Удаляем старые
+    for _, child in pairs(HighlightFolder:GetChildren()) do
+        child:Destroy()
+    end
+
+    if Settings.BeeHighlight then
+        for _, bee in ipairs(Bees) do
+            if bee then
+                local hl = Instance.new("Highlight")
+                hl.Adornee = bee
+                hl.FillColor = Color3.fromRGB(0, 100, 255)
+                hl.FillTransparency = 0.5
+                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                hl.OutlineTransparency = 0
+                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                hl.Parent = HighlightFolder
+            end
+        end
+    end
+end
+
+-- ========== ГЛАВНЫЙ ЦИКЛ ==========
+RunService.Heartbeat:Connect(function()
+    UpdateBees()
+    UpdateHighlights()
+
+    if Settings.AutoAttract then
+        AttractBees()
+    end
+end)
+
+-- ========== УПРАВЛЕНИЕ КЛАВИШАМИ ==========
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Settings.AttractKey then
+        AttractBees()
+    elseif input.KeyCode == Settings.AttackKey then
+        AttackNearestMob()
+    end
+end)
+
+-- ========== МЕНЮ (DRAWING) ==========
+local function CreateMenu()
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30, 30, 40)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(300, 250)
+    bg.Position = Vector2.new(50, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.fromRGB(255, 255, 0)
+    title.Position = Vector2.new(60, 55)
+    title.Text = "🐝 BEE COMMANDER"
+    title.Size = 18
+    title.ZIndex = 1000
+
+    local closeBtn = Drawing.new("Text")
+    closeBtn.Visible = true
+    closeBtn.Color = Color3.new(1,0,0)
+    closeBtn.Position = Vector2.new(330, 55)
+    closeBtn.Text = "X"
+    closeBtn.Size = 18
+    closeBtn.ZIndex = 1000
+
+    local items = {}
+    local yPos = 85
+
+    local function AddCheckbox(text, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, yPos)
+        box.Filled = true
+        box.ZIndex = 1000
+
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, yPos-2)
+        lbl.Text = text
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        table.insert(items, {box=box, lbl=lbl, y=yPos, set=setter, get=getter})
+        yPos = yPos + 25
+    end
+
+    AddCheckbox("Авто-притягивание", 
+        function() return Settings.AutoAttract end,
+        function(v) Settings.AutoAttract = v end)
+
+    AddCheckbox("Подсветка пчёл", 
+        function() return Settings.BeeHighlight end,
+        function(v) Settings.BeeHighlight = v end)
+
+    -- Поле для ввода пути (упрощённо – показываем текущий)
+    local pathText = Drawing.new("Text")
+    pathText.Visible = true
+    pathText.Color = Color3.new(1,1,1)
+    pathText.Position = Vector2.new(60, yPos)
+    pathText.Text = "Путь к пчёлам:"
+    pathText.Size = 14
+    pathText.ZIndex = 1000
+    yPos = yPos + 20
+
+    local pathValue = Drawing.new("Text")
+    pathValue.Visible = true
+    pathValue.Color = Color3.fromRGB(100,255,100)
+    pathValue.Position = Vector2.new(60, yPos)
+    pathValue.Text = Settings.BeeFolderPath
+    pathValue.Size = 14
+    pathValue.ZIndex = 1000
+    yPos = yPos + 25
+
+    local info1 = Drawing.new("Text")
+    info1.Visible = true
+    info1.Color = Color3.new(1,1,1)
+    info1.Position = Vector2.new(60, yPos)
+    info1.Text = "P - притянуть | M - атака"
+    info1.Size = 14
+    info1.ZIndex = 1000
+    yPos = yPos + 20
+
+    local info2 = Drawing.new("Text")
+    info2.Visible = true
+    info2.Color = Color3.new(1,1,1)
+    info2.Position = Vector2.new(60, yPos)
+    info2.Text = "Найдено пчёл: " .. #Bees
+    info2.Size = 14
+    info2.ZIndex = 1000
+
+    -- Обработка кликов
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 50 and m.X <= 350 and m.Y >= 50 and m.Y <= 300 then
+                for _, item in ipairs(items) do
+                    if m.X >= 60 and m.X <= 72 and m.Y >= item.y-6 and m.Y <= item.y+6 then
+                        local new = not item.get()
+                        item.set(new)
+                        item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
+                end
+            end
+            if m.X >= 330 and m.X <= 350 and m.Y >= 55 and m.Y <= 73 then
+                -- Закрыть меню
+                bg.Visible = false
+                title.Visible = false
+                closeBtn.Visible = false
+                pathText.Visible = false
+                pathValue.Visible = false
+                info1.Visible = false
+                info2.Visible = false
+                for _, item in ipairs(items) do
+                    item.box.Visible = false
+                    item.lbl.Visible = false
+                end
+                HighlightFolder:Destroy()
+            end
+        end
+    end)
+
+    -- Обновляем счётчик пчёл
+    RunService.RenderStepped:Connect(function()
+        info2.Text = "Найдено пчёл: " .. #Bees
+    end)
+end
+
+-- ========== ЗАПУСК ==========
+CreateMenu()
+print("✅ Bee Commander загружен. Меню слева вверху. P - притянуть, M - атака.")
