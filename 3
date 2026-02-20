@@ -1,17 +1,15 @@
 --[[
-    СКРИПТ: ПОИСК ОБЪЕКТОВ РЯДОМ (РАДИУС 20 STUD)
-    - Нажми T, чтобы увидеть в консоли (F9) все части,
-      находящиеся не дальше 20 студий от персонажа.
+    РАСШИРЕННЫЙ ПОИСК ОБЪЕКТОВ РЯДОМ
+    - Нажми T, чтобы увидеть ВСЕ объекты (не только части) в радиусе 20 студий.
 ]]
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
-local SEARCH_RADIUS = 10  -- радиус поиска в студиях
+local SEARCH_RADIUS = 20
 local KEY = Enum.KeyCode.T
 
--- Функция для поиска объектов вокруг персонажа
 local function FindNearbyObjects()
     local character = LocalPlayer.Character
     if not character then
@@ -19,46 +17,51 @@ local function FindNearbyObjects()
         return
     end
 
-    -- Корневая часть (HumanoidRootPart или Torso)
     local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
     if not rootPart then
-        print("❌ Не удалось найти корневую часть")
+        print("❌ Корневая часть не найдена")
         return
     end
 
     local center = rootPart.Position
-    -- Создаём область поиска (Region3) размером 40x40x40 (радиус 20 во все стороны)
-    local region = Region3.new(
-        center - Vector3.new(SEARCH_RADIUS, SEARCH_RADIUS, SEARCH_RADIUS),
-        center + Vector3.new(SEARCH_RADIUS, SEARCH_RADIUS, SEARCH_RADIUS)
-    )
+    local found = {}
 
-    -- Находим все части в этой области (игнорируем самого игрока)
-    local parts = workspace:FindPartsInRegion3(region, character, 1000) -- лимит 1000 объектов
-
-    print("\n=== ОБЪЕКТЫ РЯДОМ (радиус " .. SEARCH_RADIUS .. " stud) ===")
-    if #parts == 0 then
-        print("Ничего не найдено")
-        return
+    -- Перебираем ВСЕ объекты в workspace (игнорируя персонажа)
+    for _, obj in pairs(workspace:GetDescendants()) do
+        -- Проверяем, есть ли у объекта позиция (BasePart, Model и т.д.)
+        local pos = (obj:IsA("BasePart") and obj.Position) or (obj:IsA("Model") and obj:GetPrimaryPartCFrame() and obj:GetPrimaryPartCFrame().Position)
+        if pos then
+            local dist = (pos - center).Magnitude
+            if dist <= SEARCH_RADIUS then
+                table.insert(found, {
+                    Name = obj.Name,
+                    Class = obj.ClassName,
+                    Path = obj:GetFullName(),
+                    Distance = dist,
+                    Position = pos
+                })
+            end
+        end
     end
 
-    for i, part in ipairs(parts) do
-        -- Расстояние от центра персонажа до объекта
-        local dist = (part.Position - center).Magnitude
-        -- Полный путь объекта (для понимания, где он находится в иерархии)
-        local path = part:GetFullName()
-        print(string.format("%d. %s (%s) — %.1f stud", i, part.Name, part.ClassName, dist))
-        print("   Путь: " .. path)
+    print("\n=== ОБЪЕКТЫ РЯДОМ (радиус " .. SEARCH_RADIUS .. " stud) ===")
+    if #found == 0 then
+        print("Ничего не найдено")
+    else
+        table.sort(found, function(a, b) return a.Distance < b.Distance end)
+        for i, item in ipairs(found) do
+            print(string.format("%d. %s (%s) — %.1f stud", i, item.Name, item.Class, item.Distance))
+            print("   Путь: " .. item.Path)
+        end
     end
     print("=====================================\n")
 end
 
--- Назначаем клавишу
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
     if input.KeyCode == KEY then
         FindNearbyObjects()
     end
 end)
 
-print("✅ Скрипт загружен. Нажмите432222222222 T для поиска объектов рядом.")
+print("✅ Расширенный сканер загружен. Нажми T для поиска.")
