@@ -1,48 +1,103 @@
 --[[
-    АВТОМАТИЧЕСКАЯ ТЕЛЕПОРТАЦИЯ НА ТОКЕНЫ "C"
-    - Ищет все объекты с именем "C" и прозрачностью 0.
-    - Мгновенно перемещает персонажа в центр ближайшего.
-    - Работает непрерывно.
+    МАКСИМАЛЬНЫЙ АНАЛИЗ ОБЪЕКТА ПОД КУРСОРОМ
+    - Выводит все свойства, атрибуты, теги, дочерние объекты.
+    - Поможет найти отличие между реальными и фантомными токенами.
 ]]
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
--- Имя цели (как в выводе)
-local TARGET_NAME = "C"
+local currentHighlight = nil
+local lastTarget = nil
 
--- Функция проверки, активен ли токен (прозрачность 0)
-local function isActive(obj)
-    return obj:IsA("BasePart") and obj.Name == TARGET_NAME and obj.Transparency == 0
+local function highlightObject(obj)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    if obj then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = obj
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = game:GetService("CoreGui")
+        currentHighlight = highlight
+    end
 end
 
--- Основной цикл
-while true do
-    local char = LocalPlayer.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-        if root then
-            local myPos = root.Position
-            local closest = nil
-            local closestDist = math.huge
+RunService.RenderStepped:Connect(function()
+    local target = Mouse.Target
+    if target ~= lastTarget then
+        lastTarget = target
+        highlightObject(target)
+    end
+end)
 
-            -- Перебираем всё, что есть в workspace
-            for _, obj in pairs(workspace:GetDescendants()) do
-                if isActive(obj) then
-                    local dist = (obj.Position - myPos).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closest = obj
-                    end
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local target = lastTarget
+        if target then
+            print("\n========== ПОЛНЫЙ АНАЛИЗ ОБЪЕКТА ==========")
+            print("Имя:", target.Name)
+            print("Класс:", target.ClassName)
+            print("Полный путь:", target:GetFullName())
+            if target:IsA("BasePart") then
+                print("Позиция:", tostring(target.Position))
+                print("Прозрачность (Transparency):", target.Transparency)
+                print("CanCollide:", target.CanCollide)
+                print("Anchored:", target.Anchored)
+                print("Material:", target.Material.Name)
+                print("Size:", tostring(target.Size))
+                print("Color:", tostring(target.Color))
+                print("Reflectance:", target.Reflectance)
+                print("CFrame:", tostring(target.CFrame))
+            end
+            -- Атрибуты
+            local attrs = target:GetAttributes()
+            if next(attrs) then
+                print("Атрибуты:")
+                for k, v in pairs(attrs) do
+                    print("  " .. k .. " = " .. tostring(v))
                 end
+            else
+                print("Атрибутов нет.")
             end
-
-            if closest then
-                -- Мгновенная телепортация прямо в центр токена
-                root.CFrame = CFrame.new(closest.Position)
+            -- Теги (CollectionService)
+            local tags = {}
+            pcall(function()
+                tags = game:GetService("CollectionService"):GetTags(target)
+            end)
+            if #tags > 0 then
+                print("Теги:")
+                for _, tag in ipairs(tags) do
+                    print("  " .. tag)
+                end
+            else
+                print("Тегов нет.")
             end
+            -- Дочерние объекты (если есть)
+            local children = target:GetChildren()
+            if #children > 0 then
+                print("Дочерние объекты:")
+                for _, child in ipairs(children) do
+                    print("  " .. child.Name .. " (" .. child.ClassName .. ")")
+                end
+            else
+                print("Дочерних объектов нет.")
+            end
+            print("Родитель:", target.Parent and target.Parent:GetFullName() or "nil")
+            print("============================================\n")
+        else
+            print("Под курсором нет объекта.")
         end
     end
-    -- Небольшая пауза, чтобы не нагружать процессор (можно уменьшить до 0.01)
-    task.wait(0.03)
-end
+end)
+
+print("✅ Анализатор (максимальный) загружен. Наводись на объект и кликай ЛКМ.")
