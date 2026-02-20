@@ -1,28 +1,24 @@
 --[[
-    АВТОМАТИЧЕСКАЯ ТЕЛЕПОРТАЦИЯ НА АКТИВНЫЕ ТОКЕНЫ "C"
-    - Игнорирует объекты, у которых есть дочерний объект "Sound".
-    - Телепортируется на ближайший активный токен.
+    ТЕЛЕПОРТ НА ТОКЕНЫ С ЧЁРНЫМ СПИСКОМ
+    - Запоминает координаты фантомов и игнорирует их.
+    - Нажми T для запуска/остановки (можно удалить, если нужно автоматически).
 ]]
 
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local TARGET_NAME = "C"
+local BLACKLIST = {}          -- таблица с координатами фантомов
+local ENABLED = true          -- флаг работы
 
--- Функция проверки, активен ли токен (нет звука)
-local function isActive(obj)
-    if obj:IsA("BasePart") and obj.Name == TARGET_NAME and obj.Transparency == 0 then
-        -- Если есть дочерний объект "Sound" – это фантом
-        if obj:FindFirstChild("Sound") then
-            return false
-        end
-        return true
-    end
-    return false
+-- Функция получения ключа по позиции
+local function posKey(pos)
+    return string.format("%.1f_%.1f_%.1f", pos.X, pos.Y, pos.Z)
 end
 
 -- Основной цикл
-while true do
+while ENABLED do
     local char = LocalPlayer.Character
     if char then
         local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
@@ -31,20 +27,44 @@ while true do
             local closest = nil
             local closestDist = math.huge
 
+            -- Поиск ближайшего токена не из чёрного списка
             for _, obj in pairs(workspace:GetDescendants()) do
-                if isActive(obj) then
-                    local dist = (obj.Position - myPos).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closest = obj
+                if obj:IsA("BasePart") and obj.Name == TARGET_NAME and obj.Transparency == 0 then
+                    local key = posKey(obj.Position)
+                    if not BLACKLIST[key] then
+                        local dist = (obj.Position - myPos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = obj
+                        end
                     end
                 end
             end
 
             if closest then
-                root.CFrame = CFrame.new(closest.Position)
+                local pos = closest.Position
+                root.CFrame = CFrame.new(pos)   -- телепорт
+                task.wait(0.1)                  -- ждём, должен ли объект исчезнуть
+
+                -- Если объект всё ещё существует — это фантом
+                if closest and closest.Parent then
+                    local key = posKey(pos)
+                    BLACKLIST[key] = true
+                    print("Фантом добавлен в чёрный список:", key)
+                end
             end
         end
     end
-    task.wait(0.03)
+    task.wait(0.05)  -- небольшая пауза для производительности
 end
+
+-- Управление: клавиша T для паузы/возобновления (по желанию)
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.T then
+        ENABLED = not ENABLED
+        print(ENABLED and "▶️ Скрипт запущен" or "⏸️ Скрипт приостановлен")
+    end
+end)
+
+print("✅ Скрипт с чёрным списком запущен. Нажми T для паузы.")
