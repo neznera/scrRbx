@@ -1,18 +1,19 @@
 --[[
-    МАКСИМАЛЬНЫЙ АНАЛИЗ ОБЪЕКТА ПОД КУРСОРОМ
-    - Выводит все свойства, атрибуты, теги, дочерние объекты.
-    - Поможет найти отличие между реальными и фантомными токенами.
+    АНАЛИЗАТОР С RAYCAST (точное определение объекта под курсором)
+    - Подсвечивает любые объекты (даже модели), если они имеют геометрию.
+    - По клику ЛКМ выводит все свойства, атрибуты, теги, дочерние объекты.
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 
 local currentHighlight = nil
 local lastTarget = nil
 
+-- Функция подсветки (работает и с частями, и с моделями)
 local function highlightObject(obj)
     if currentHighlight then
         currentHighlight:Destroy()
@@ -20,7 +21,7 @@ local function highlightObject(obj)
     end
     if obj then
         local highlight = Instance.new("Highlight")
-        highlight.Adornee = obj
+        highlight.Adornee = obj  -- Highlight может работать с моделями целиком
         highlight.FillColor = Color3.fromRGB(255, 255, 255)
         highlight.FillTransparency = 0.5
         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
@@ -31,14 +32,26 @@ local function highlightObject(obj)
     end
 end
 
+-- Функция получения объекта под курсором через Raycast
+local function getObjectUnderMouse()
+    local mousePos = UserInputService:GetMouseLocation()
+    local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 1000)
+    -- Игнорируем части персонажа, чтобы не подсвечивать себя
+    local hit, position = workspace:FindPartOnRay(ray, LocalPlayer.Character)
+    return hit
+end
+
+-- Отслеживание объекта под курсором
 RunService.RenderStepped:Connect(function()
-    local target = Mouse.Target
+    local target = getObjectUnderMouse()
     if target ~= lastTarget then
         lastTarget = target
         highlightObject(target)
     end
 end)
 
+-- Клик левой кнопкой — вывод информации
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -48,17 +61,18 @@ UserInputService.InputBegan:Connect(function(input, gp)
             print("Имя:", target.Name)
             print("Класс:", target.ClassName)
             print("Полный путь:", target:GetFullName())
-            if target:IsA("BasePart") then
-                print("Позиция:", tostring(target.Position))
-                print("Прозрачность (Transparency):", target.Transparency)
-                print("CanCollide:", target.CanCollide)
-                print("Anchored:", target.Anchored)
-                print("Material:", target.Material.Name)
-                print("Size:", tostring(target.Size))
-                print("Color:", tostring(target.Color))
-                print("Reflectance:", target.Reflectance)
-                print("CFrame:", tostring(target.CFrame))
-            end
+
+            -- Основные свойства
+            print("Позиция:", target:IsA("BasePart") and tostring(target.Position) or "N/A")
+            print("Прозрачность:", target:IsA("BasePart") and target.Transparency or "N/A")
+            print("CanCollide:", target:IsA("BasePart") and target.CanCollide or "N/A")
+            print("Anchored:", target:IsA("BasePart") and target.Anchored or "N/A")
+            print("Material:", target:IsA("BasePart") and target.Material.Name or "N/A")
+            print("Size:", target:IsA("BasePart") and tostring(target.Size) or "N/A")
+            print("Color:", target:IsA("BasePart") and tostring(target.Color) or "N/A")
+            print("Reflectance:", target:IsA("BasePart") and target.Reflectance or "N/A")
+            print("CFrame:", target:IsA("BasePart") and tostring(target.CFrame) or "N/A")
+
             -- Атрибуты
             local attrs = target:GetAttributes()
             if next(attrs) then
@@ -69,7 +83,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
             else
                 print("Атрибутов нет.")
             end
-            -- Теги (CollectionService)
+
+            -- Теги
             local tags = {}
             pcall(function()
                 tags = game:GetService("CollectionService"):GetTags(target)
@@ -82,7 +97,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
             else
                 print("Тегов нет.")
             end
-            -- Дочерние объекты (если есть)
+
+            -- Дочерние объекты
             local children = target:GetChildren()
             if #children > 0 then
                 print("Дочерние объекты:")
@@ -92,6 +108,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
             else
                 print("Дочерних объектов нет.")
             end
+
             print("Родитель:", target.Parent and target.Parent:GetFullName() or "nil")
             print("============================================\n")
         else
@@ -100,4 +117,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("✅ Анализатор (максимальный) загружен. Наводись на объект и кликай ЛКМ.")
+print("✅ Анализатор (Raycast) загружен. Наводись на объект и кликай ЛКМ.")
