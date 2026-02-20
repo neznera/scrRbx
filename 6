@@ -1,0 +1,120 @@
+--[[
+    АНАЛИЗАТОР С RAYCAST (точное определение объекта под курсором)
+    - Подсвечивает любые объекты (даже модели), если они имеют геометрию.
+    - По клику ЛКМ выводит все свойства, атрибуты, теги, дочерние объекты.
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+local currentHighlight = nil
+local lastTarget = nil
+
+-- Функция подсветки (работает и с частями, и с моделями)
+local function highlightObject(obj)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    if obj then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = obj  -- Highlight может работать с моделями целиком
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = game:GetService("CoreGui")
+        currentHighlight = highlight
+    end
+end
+
+-- Функция получения объекта под курсором через Raycast
+local function getObjectUnderMouse()
+    local mousePos = UserInputService:GetMouseLocation()
+    local unitRay = Camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 1000)
+    -- Игнорируем части персонажа, чтобы не подсвечивать себя
+    local hit, position = workspace:FindPartOnRay(ray, LocalPlayer.Character)
+    return hit
+end
+
+-- Отслеживание объекта под курсором
+RunService.RenderStepped:Connect(function()
+    local target = getObjectUnderMouse()
+    if target ~= lastTarget then
+        lastTarget = target
+        highlightObject(target)
+    end
+end)
+
+-- Клик левой кнопкой — вывод информации
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local target = lastTarget
+        if target then
+            print("\n========== ПОЛНЫЙ АНАЛИЗ ОБЪЕКТА ==========")
+            print("Имя:", target.Name)
+            print("Класс:", target.ClassName)
+            print("Полный путь:", target:GetFullName())
+
+            -- Основные свойства
+            print("Позиция:", target:IsA("BasePart") and tostring(target.Position) or "N/A")
+            print("Прозрачность:", target:IsA("BasePart") and target.Transparency or "N/A")
+            print("CanCollide:", target:IsA("BasePart") and target.CanCollide or "N/A")
+            print("Anchored:", target:IsA("BasePart") and target.Anchored or "N/A")
+            print("Material:", target:IsA("BasePart") and target.Material.Name or "N/A")
+            print("Size:", target:IsA("BasePart") and tostring(target.Size) or "N/A")
+            print("Color:", target:IsA("BasePart") and tostring(target.Color) or "N/A")
+            print("Reflectance:", target:IsA("BasePart") and target.Reflectance or "N/A")
+            print("CFrame:", target:IsA("BasePart") and tostring(target.CFrame) or "N/A")
+
+            -- Атрибуты
+            local attrs = target:GetAttributes()
+            if next(attrs) then
+                print("Атрибуты:")
+                for k, v in pairs(attrs) do
+                    print("  " .. k .. " = " .. tostring(v))
+                end
+            else
+                print("Атрибутов нет.")
+            end
+
+            -- Теги
+            local tags = {}
+            pcall(function()
+                tags = game:GetService("CollectionService"):GetTags(target)
+            end)
+            if #tags > 0 then
+                print("Теги:")
+                for _, tag in ipairs(tags) do
+                    print("  " .. tag)
+                end
+            else
+                print("Тегов нет.")
+            end
+
+            -- Дочерние объекты
+            local children = target:GetChildren()
+            if #children > 0 then
+                print("Дочерние объекты:")
+                for _, child in ipairs(children) do
+                    print("  " .. child.Name .. " (" .. child.ClassName .. ")")
+                end
+            else
+                print("Дочерних объектов нет.")
+            end
+
+            print("Родитель:", target.Parent and target.Parent:GetFullName() or "nil")
+            print("============================================\n")
+        else
+            print("Под курсором нет объекта.")
+        end
+    end
+end)
+
+print("✅ Анализат23ор (Raycast) загружен. Наводись на объект и кликай ЛКМ.")
