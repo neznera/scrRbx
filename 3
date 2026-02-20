@@ -1,20 +1,64 @@
--- Инспектор объектов (наведись на токен и смотри консоль)
+--[[
+    СКРИПТ: ПОИСК ОБЪЕКТОВ РЯДОМ (РАДИУС 20 STUD)
+    - Нажми T, чтобы увидеть в консоли (F9) все части,
+      находящиеся не дальше 20 студий от персонажа.
+]]
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
-local mouse = LocalPlayer:GetMouse()
+local SEARCH_RADIUS = 20  -- радиус поиска в студиях
+local KEY = Enum.KeyCode.T
 
-mouse.Move:Connect(function()
-    local target = mouse.Target
-    if target then
-        -- Очищаем консоль (если нужно, можно закомментировать)
-        print("-----")
-        print("Имя:", target.Name)
-        print("Класс:", target.ClassName)
-        print("Путь:", target:GetFullName())
-        print("Родитель:", target.Parent and target.Parent.Name or "nil")
+-- Функция для поиска объектов вокруг персонажа
+local function FindNearbyObjects()
+    local character = LocalPlayer.Character
+    if not character then
+        print("❌ Персонаж не найден")
+        return
+    end
+
+    -- Корневая часть (HumanoidRootPart или Torso)
+    local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+    if not rootPart then
+        print("❌ Не удалось найти корневую часть")
+        return
+    end
+
+    local center = rootPart.Position
+    -- Создаём область поиска (Region3) размером 40x40x40 (радиус 20 во все стороны)
+    local region = Region3.new(
+        center - Vector3.new(SEARCH_RADIUS, SEARCH_RADIUS, SEARCH_RADIUS),
+        center + Vector3.new(SEARCH_RADIUS, SEARCH_RADIUS, SEARCH_RADIUS)
+    )
+
+    -- Находим все части в этой области (игнорируем самого игрока)
+    local parts = workspace:FindPartsInRegion3(region, character, 1000) -- лимит 1000 объектов
+
+    print("\n=== ОБЪЕКТЫ РЯДОМ (радиус " .. SEARCH_RADIUS .. " stud) ===")
+    if #parts == 0 then
+        print("Ничего не найдено")
+        return
+    end
+
+    for i, part in ipairs(parts) do
+        -- Расстояние от центра персонажа до объекта
+        local dist = (part.Position - center).Magnitude
+        -- Полный путь объекта (для понимания, где он находится в иерархии)
+        local path = part:GetFullName()
+        print(string.format("%d. %s (%s) — %.1f stud", i, part.Name, part.ClassName, dist))
+        print("   Путь: " .. path)
+    end
+    print("=====================================\n")
+end
+
+-- Назначаем клавишу
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == KEY then
+        FindNearbyObjects()
     end
 end)
 
-print("✅ Инспектор запущен. Наводи мышку на токены и смотри консоль (F9).")
+print("✅ Скрипт загружен. Нажмите432222222222 T для поиска объектов рядом.")
