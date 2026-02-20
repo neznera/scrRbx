@@ -1,0 +1,26 @@
+local levelUp = game:GetService("ReplicatedStorage").Events.BeeLevelUp_
+if levelUp then
+    -- Вариант 1: только номер слота (предположим, что он ожидает слот и количество)
+    levelUp:FireServer(1)
+    print("Вызвано с аргументом (1)")
+    
+    wait(1)
+    
+    -- Вариант 2: слот и количество (например, 1 и 1000000)
+    levelUp:FireServer(1, 1000000)
+    print("Вызвано с аргументами (1, 1000000)")
+    
+    wait(1)
+    
+    -- Вариант 3: слот, количество и что-то ещё (может быть идентификатор пчелы)
+    levelUp:FireServer(1, 1000000, "BasicBee")
+    print("Вызвано с аргументами (1, 1000000, 'BasicBee')")
+    
+    wait(1)
+    
+    -- Вариант 4: возможно, порядок другой: количество, слот
+    levelUp:FireServer(1000000, 1)
+    print("Вызвано с аргументами (1000000, 1)")
+else
+    print("BeeLevelUp_ не найден")
+end
