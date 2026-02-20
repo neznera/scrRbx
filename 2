@@ -1,79 +1,110 @@
 --[[
-    БЫСТРАЯ ТЕЛЕПОРТАЦИЯ НА СНЕЖИНКУ ИЛИ ТОКЕН (Bee Swarm Simulator)
-    - Телепортирует на ближайший объект (снежинку или токен) по нажатию T.
-    - Ищет объекты с именами: Snowflake, Token, SnowflakeToken (настройте под игру).
-    - Мгновенная телепортация без задержки.
-    - После телепортации автоматически пытается собрать токен (если это он).
+    Teleport to Snowflake Token (Bee Swarm Simulator)
+    - Ручной режим: T – телепорт на ближайший токен.
+    - Авто режим: G – вкл/выкл (постоянная телепортация на токены).
+    - Телепортируется прямо в центр токена для мгновенного сбора.
 ]]
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Настройки
-local TELEPORT_KEY = Enum.KeyCode.T
-local SEARCH_RADIUS = 1000
+-- ===== НАСТРОЙКИ =====
+local SETTINGS = {
+    -- Имя токена (можно уточнить в игре, может быть "SnowflakeToken", "Token", "GiftToken" и т.д.)
+    TokenName = "SnowflakeToken",  -- если не находит, попробуйте "Token" или посмотрите в Explorer'e
 
--- Список имён объектов для поиска (добавьте все варианты)
-local TARGET_NAMES = {
-    "Snowflake",
-    "Token",
-    "SnowflakeToken",
-    "HoneyToken",  -- возможно, есть и другие токены
-    "GingerbreadHouse",
-    -- добавьте другие названия по необходимости
+    -- Радиус поиска
+    SearchRadius = 500,
+
+    -- Интервал авто-телепорта (сек.)
+    AutoInterval = 0.1,
+
+    -- Клавиши
+    ManualKey = Enum.KeyCode.T,
+    ToggleAutoKey = Enum.KeyCode.G,
 }
 
--- Функция телепортации
-local function TeleportToTarget()
-    local character = LocalPlayer.Character
-    if not character then return end
+-- ===== ПЕРЕМЕННЫЕ =====
+local autoEnabled = false
+local character = nil
+local rootPart = nil
 
-    local rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-    if not rootPart then return end
-
-    local closestTarget = nil
-    local closestDist = SEARCH_RADIUS
-
-    -- Поиск объектов по всем потомкам workspace
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            for _, name in ipairs(TARGET_NAMES) do
-                if obj.Name:find(name) then  -- частичное совпадение имени
-                    local dist = (obj.Position - rootPart.Position).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closestTarget = obj
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    if closestTarget then
-        -- Мгновенная телепортация на объект
-        rootPart.CFrame = CFrame.new(closestTarget.Position + Vector3.new(0, 5, 0))
-        print("✅ Телепорт на:", closestTarget.Name)
-
-        -- Дополнительно: через мгновение пытаемся собрать токен (эмулируем касание)
-        -- Можно просто ничего не делать, т.к. мы уже рядом, токен должен подобраться автоматически при следующем Heartbeat.
-        -- Если нет, можно добавить небольшую задержку для гарантии:
-        task.wait(0.05) -- небольшая пауза, чтобы физика обновилась
-        -- Ничего больше не нужно, игра сама подберёт токен.
+-- Обновляем ссылки на персонажа
+local function updateCharacter()
+    character = LocalPlayer.Character
+    if character then
+        rootPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
     else
-        print("❌ Цель не найдена в радиусе", SEARCH_RADIUS)
+        rootPart = nil
     end
 end
 
--- Назначаем клавишу
+LocalPlayer.CharacterAdded:Connect(updateCharacter)
+updateCharacter()
+
+-- Функция поиска ближайшего токена
+local function findNearestToken()
+    if not rootPart then return nil end
+
+    local myPos = rootPart.Position
+    local nearest = nil
+    local minDist = SETTINGS.SearchRadius
+
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name == SETTINGS.TokenName then
+            local dist = (obj.Position - myPos).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = obj
+            end
+        end
+    end
+    return nearest
+end
+
+-- Функция телепортации на токен
+local function teleportToToken(token)
+    if not token or not rootPart then return end
+    rootPart.CFrame = CFrame.new(token.Position)  -- точно в центр
+    print("✅ Телепорт на токен")
+end
+
+-- Ручная телепортация
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.KeyCode == TELEPORT_KEY then
-        TeleportToTarget()
+    if input.KeyCode == SETTINGS.ManualKey then
+        local token = findNearestToken()
+        if token then
+            teleportToToken(token)
+        else
+            print("❌ Токен не найден")
+        end
     end
 end)
 
-print("✅ Скрипт загружен. Нажми T для телепортации на ближайший объект.")
+-- Вкл/выкл авто режима
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == SETTINGS.ToggleAutoKey then
+        autoEnabled = not autoEnabled
+        print("🔄 Авто-телепорт:", autoEnabled and "ВКЛ" or "ВЫКЛ")
+    end
+end)
+
+-- Авто цикл
+RunService.Heartbeat:Connect(function()
+    if not autoEnabled then return end
+    if not rootPart then updateCharacter(); return end
+
+    local token = findNearestToken()
+    if token then
+        teleportToToken(token)
+        task.wait(SETTINGS.AutoInterval)  -- небольшая пауза между телепортами, чтобы не спамить слишком часто
+    end
+end)
+
+print("✅ Скрипт загружен. T – ручная телепортация, G – вкл/выкл авто.")
+print("Токен ищется по имени: " .. SETTINGS.TokenName)
