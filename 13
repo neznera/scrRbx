@@ -1,0 +1,13 @@
+local suspects = {}
+for _, obj in pairs(game:GetDescendants()) do
+    if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+        local name = obj.Name:lower()
+        if name:find("feed") or name:find("treat") or name:find("level") or name:find("bond") or name:find("upgrade") then
+            table.insert(suspects, obj:GetFullName() .. " (" .. obj.ClassName .. ")")
+        end
+    end
+end
+print("Найдено подозрительных Remote'ов: " .. #suspects)
+for i, v in ipairs(suspects) do
+    print(i .. ". " .. v)
+end
