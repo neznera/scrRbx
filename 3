@@ -1,6 +1,7 @@
 --[[
-    РАСШИРЕННЫЙ ПОИСК ОБЪЕКТОВ РЯДОМ
-    - Нажми T, чтобы увидеть ВСЕ объекты (не только части) в радиусе 20 студий.
+    РАСШИРЕННЫЙ ПОИСК ОБЪЕКТОВ РЯДОМ (без ошибок)
+    - Нажми T, чтобы увидеть ВСЕ объекты в радиусе 20 студий.
+    - Работает с BasePart и Model (даже без PrimaryPart).
 ]]
 
 local Players = game:GetService("Players")
@@ -26,11 +27,30 @@ local function FindNearbyObjects()
     local center = rootPart.Position
     local found = {}
 
-    -- Перебираем ВСЕ объекты в workspace (игнорируя персонажа)
+    -- Перебираем все объекты в workspace (игнорируем части игрока)
     for _, obj in pairs(workspace:GetDescendants()) do
-        -- Проверяем, есть ли у объекта позиция (BasePart, Model и т.д.)
-        local pos = (obj:IsA("BasePart") and obj.Position) or (obj:IsA("Model") and obj:GetPrimaryPartCFrame() and obj:GetPrimaryPartCFrame().Position)
-        if pos then
+        -- Пытаемся получить позицию объекта
+        local pos = nil
+
+        if obj:IsA("BasePart") then
+            pos = obj.Position
+        elseif obj:IsA("Model") then
+            -- Если есть PrimaryPart, используем его позицию
+            if obj.PrimaryPart then
+                pos = obj.PrimaryPart.Position
+            else
+                -- Иначе пробуем получить ограничивающую рамку модели
+                local success, cframe = pcall(function()
+                    return obj:GetBoundingBox()
+                end)
+                if success and cframe then
+                    pos = cframe.Position
+                end
+            end
+        end
+
+        -- Если удалось получить позицию и объект не принадлежит персонажу
+        if pos and obj:IsDescendantOf(character) == false then
             local dist = (pos - center).Magnitude
             if dist <= SEARCH_RADIUS then
                 table.insert(found, {
@@ -38,16 +58,17 @@ local function FindNearbyObjects()
                     Class = obj.ClassName,
                     Path = obj:GetFullName(),
                     Distance = dist,
-                    Position = pos
                 })
             end
         end
     end
 
+    -- Вывод результатов
     print("\n=== ОБЪЕКТЫ РЯДОМ (радиус " .. SEARCH_RADIUS .. " stud) ===")
     if #found == 0 then
         print("Ничего не найдено")
     else
+        -- Сортируем по расстоянию
         table.sort(found, function(a, b) return a.Distance < b.Distance end)
         for i, item in ipairs(found) do
             print(string.format("%d. %s (%s) — %.1f stud", i, item.Name, item.Class, item.Distance))
@@ -64,4 +85,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
-print("✅ Расширенный сканер загружен. Нажми T для поиска.")
+print("✅ Расширенный сканер загружен. Нажми T для поиска объектов рядом.")
