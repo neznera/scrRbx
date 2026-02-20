@@ -1,7 +1,5 @@
-local remote = game:GetService("ReplicatedStorage").Events.BeeLevelUp
+local remote = game:GetService("ReplicatedStorage").Events.PlayerPurchase
 if remote then
-    remote:FireServer(1, 100000000, "Treat")
-    print("✅ Запрос BeeLevelUp отправлен (1, 100000000, 'Treat')")
-else
-    print("❌ BeeLevelUp не найден")
+    remote:FireServer("Treat", 100000000)
+    print("✅ Запрос PlayerPurchase отправлен ('Treat', 100000000)")
 end
