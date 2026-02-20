@@ -1,0 +1,361 @@
+--[[
+    ██████╗ ███████╗███╗   ███╗ ██████╗ ████████╗███████╗    ███████╗██╗░░██╗██████╗░██╗░░░░░░█████╗░██████╗░███████╗██████╗░
+    ██╔══██╗██╔════╝████╗ ████║██╔═══██╗╚══██╔══╝██╔════╝    ██╔════╝██║░░██║██╔══██╗██║░░░░░██╔══██╗██╔══██╗██╔════╝██╔══██╗
+    ██████╔╝█████╗  ██╔████╔██║██║   ██║   ██║   █████╗      █████╗░░███████║██████╔╝██║░░░░░██║░░██║██████╔╝█████╗░░██████╔╝
+    ██╔══██╗██╔══╝  ██║╚██╔╝██║██║   ██║   ██║   ██╔══╝      ██╔══╝░░██╔══██║██╔═══╝░██║░░░░░██║░░██║██╔══██╗██╔══╝░░██╔══██╗
+    ██║  ██║███████╗██║ ╚═╝ ██║╚██████╔╝   ██║   ███████╗    ███████╗██║░░██║██║░░░░░███████╗╚█████╔╝██║░░██║███████╗██║░░██║
+    ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝ ╚═════╝    ╚═╝   ╚══════╝    ╚══════╝╚═╝░░╚═╝╚═╝░░░░░╚══════╝░╚════╝░╚═╝░░╚═╝╚══════╝╚═╝░░╚═╝
+    
+    Версия: 3.0 (GUI)
+    Назначение: Полное исследование RemoteEvent'ов и RemoteFunction'ов.
+    Возможности:
+        ✅ Сканирование всех сервисов + getnilinstances()
+        ✅ Отображение списка найденных Remote'ов
+        ✅ Вызов любого Remote с пользовательскими аргументами
+        ✅ Логирование всех вызовов (в консоль и в окно)
+        ✅ Защита от ошибок (pcall)
+        ✅ Работает на любом эксплойте с поддержкой ScreenGui
+]]
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- Защита GUI
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
+
+-- ========== ПЕРЕМЕННЫЕ ==========
+local RemoteList = {}           -- список найденных Remote'ов
+local SelectedIndex = 1          -- индекс выбранного
+local ArgsString = ""            -- строка с аргументами
+local Logs = {}                  -- история вызовов
+local LogLabels = {}             -- метки для логов в GUI
+
+-- ========== ОСНОВНОЕ GUI ==========
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "RemoteExplorer_" .. math.random(9999)
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+-- Главное окно
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 600, 0, 500)
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -250)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+MainFrame.BackgroundTransparency = 0.1
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+-- Заголовок
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 35)
+TitleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ REMOTE EVENT EXPLORER"
+Title.TextColor3 = Color3.fromRGB(255, 255, 0)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 20
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TitleBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0, 2)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Font = Enum.Font.SourceSansBold
+CloseBtn.TextSize = 20
+CloseBtn.Parent = TitleBar
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+-- Панель управления (кнопки)
+local ControlFrame = Instance.new("Frame")
+ControlFrame.Size = UDim2.new(1, -20, 0, 50)
+ControlFrame.Position = UDim2.new(0, 10, 0, 45)
+ControlFrame.BackgroundTransparency = 1
+ControlFrame.Parent = MainFrame
+
+local ScanBtn = Instance.new("TextButton")
+ScanBtn.Size = UDim2.new(0, 100, 0, 35)
+ScanBtn.Position = UDim2.new(0, 0, 0.5, -17)
+ScanBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
+ScanBtn.Text = "SCAN"
+ScanBtn.TextColor3 = Color3.new(1, 1, 1)
+ScanBtn.Font = Enum.Font.SourceSansBold
+ScanBtn.TextSize = 18
+ScanBtn.Parent = ControlFrame
+ScanBtn.MouseButton1Click:Connect(function()
+    ScanRemotes()
+end)
+
+local FireBtn = Instance.new("TextButton")
+FireBtn.Size = UDim2.new(0, 100, 0, 35)
+FireBtn.Position = UDim2.new(0, 120, 0.5, -17)
+FireBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+FireBtn.Text = "FIRE"
+FireBtn.TextColor3 = Color3.new(1, 1, 1)
+FireBtn.Font = Enum.Font.SourceSansBold
+FireBtn.TextSize = 18
+FireBtn.Parent = ControlFrame
+FireBtn.MouseButton1Click:Connect(function()
+    FireSelected()
+end)
+
+local PrevBtn = Instance.new("TextButton")
+PrevBtn.Size = UDim2.new(0, 40, 0, 35)
+PrevBtn.Position = UDim2.new(0, 240, 0.5, -17)
+PrevBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+PrevBtn.Text = "<"
+PrevBtn.TextColor3 = Color3.new(1, 1, 1)
+PrevBtn.Font = Enum.Font.SourceSansBold
+PrevBtn.TextSize = 18
+PrevBtn.Parent = ControlFrame
+PrevBtn.MouseButton1Click:Connect(function()
+    if #RemoteList > 0 then
+        SelectedIndex = (SelectedIndex - 2) % #RemoteList + 1
+        UpdateDisplay()
+    end
+end)
+
+local NextBtn = Instance.new("TextButton")
+NextBtn.Size = UDim2.new(0, 40, 0, 35)
+NextBtn.Position = UDim2.new(0, 290, 0.5, -17)
+NextBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+NextBtn.Text = ">"
+NextBtn.TextColor3 = Color3.new(1, 1, 1)
+NextBtn.Font = Enum.Font.SourceSansBold
+NextBtn.TextSize = 18
+NextBtn.Parent = ControlFrame
+NextBtn.MouseButton1Click:Connect(function()
+    if #RemoteList > 0 then
+        SelectedIndex = SelectedIndex % #RemoteList + 1
+        UpdateDisplay()
+    end
+end)
+
+-- Информация о выбранном Remote
+local InfoFrame = Instance.new("Frame")
+InfoFrame.Size = UDim2.new(1, -20, 0, 60)
+InfoFrame.Position = UDim2.new(0, 10, 0, 100)
+InfoFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+InfoFrame.Parent = MainFrame
+
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Size = UDim2.new(1, -10, 1, 0)
+InfoLabel.Position = UDim2.new(0, 5, 0, 0)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "Selected: none"
+InfoLabel.TextColor3 = Color3.new(1, 1, 1)
+InfoLabel.Font = Enum.Font.SourceSans
+InfoLabel.TextSize = 16
+InfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+InfoLabel.TextWrapped = true
+InfoLabel.Parent = InfoFrame
+
+-- Поле ввода аргументов
+local ArgsFrame = Instance.new("Frame")
+ArgsFrame.Size = UDim2.new(1, -20, 0, 60)
+ArgsFrame.Position = UDim2.new(0, 10, 0, 170)
+ArgsFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+ArgsFrame.Parent = MainFrame
+
+local ArgsLabel = Instance.new("TextLabel")
+ArgsLabel.Size = UDim2.new(0, 100, 0, 20)
+ArgsLabel.Position = UDim2.new(0, 5, 0, 5)
+ArgsLabel.BackgroundTransparency = 1
+ArgsLabel.Text = "Arguments:"
+ArgsLabel.TextColor3 = Color3.new(1, 1, 1)
+ArgsLabel.Font = Enum.Font.SourceSans
+ArgsLabel.TextSize = 16
+ArgsLabel.TextXAlignment = Enum.TextXAlignment.Left
+ArgsLabel.Parent = ArgsFrame
+
+local ArgsBox = Instance.new("TextBox")
+ArgsBox.Size = UDim2.new(1, -10, 0, 30)
+ArgsBox.Position = UDim2.new(0, 5, 0, 25)
+ArgsBox.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+ArgsBox.PlaceholderText = 'например: {"Snowflake", 10} или "Snowflake" или 42'
+ArgsBox.Text = ""
+ArgsBox.TextColor3 = Color3.new(1, 1, 1)
+ArgsBox.Font = Enum.Font.SourceSans
+ArgsBox.TextSize = 14
+ArgsBox.TextXAlignment = Enum.TextXAlignment.Left
+ArgsBox.ClearTextOnFocus = false
+ArgsBox.Parent = ArgsFrame
+
+ArgsBox.FocusLost:Connect(function()
+    ArgsString = ArgsBox.Text
+end)
+
+-- Логи
+local LogFrame = Instance.new("Frame")
+LogFrame.Size = UDim2.new(1, -20, 0, 200)
+LogFrame.Position = UDim2.new(0, 10, 0, 240)
+LogFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+LogFrame.Parent = MainFrame
+
+local LogTitle = Instance.new("TextLabel")
+LogTitle.Size = UDim2.new(1, -10, 0, 25)
+LogTitle.Position = UDim2.new(0, 5, 0, 5)
+LogTitle.BackgroundTransparency = 1
+LogTitle.Text = "📋 Logs (последние 10)"
+LogTitle.TextColor3 = Color3.new(1, 1, 1)
+LogTitle.Font = Enum.Font.SourceSansBold
+LogTitle.TextSize = 16
+LogTitle.TextXAlignment = Enum.TextXAlignment.Left
+LogTitle.Parent = LogFrame
+
+local LogList = Instance.new("ScrollingFrame")
+LogList.Size = UDim2.new(1, -10, 1, -35)
+LogList.Position = UDim2.new(0, 5, 0, 30)
+LogList.BackgroundTransparency = 1
+LogList.ScrollBarThickness = 8
+LogList.CanvasSize = UDim2.new(0, 0, 0, 0)
+LogList.Parent = LogFrame
+
+-- ========== ФУНКЦИИ ==========
+function ScanRemotes()
+    RemoteList = {}
+    local services = {
+        game:GetService("ReplicatedStorage"),
+        game:GetService("ServerStorage"),
+        game:GetService("ServerScriptService"),
+        game:GetService("Workspace"),
+        game:GetService("Players"),
+        game,
+        CoreGui
+    }
+    
+    -- Скрытые объекты
+    local hidden = getnilinstances()
+    for _, obj in pairs(hidden) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            table.insert(RemoteList, obj)
+        end
+    end
+    
+    for _, service in ipairs(services) do
+        for _, obj in pairs(service:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                table.insert(RemoteList, obj)
+            end
+        end
+    end
+    
+    print("✅ Найдено Remote'ов: " .. #RemoteList)
+    if #RemoteList > 0 then
+        SelectedIndex = 1
+        UpdateDisplay()
+    else
+        InfoLabel.Text = "Remote'ы не найдены (странно)"
+    end
+end
+
+function UpdateDisplay()
+    if #RemoteList > 0 then
+        local r = RemoteList[SelectedIndex]
+        InfoLabel.Text = string.format("Selected [%d/%d]: %s (%s)\nПуть: %s",
+            SelectedIndex, #RemoteList, r.Name, r.ClassName, r:GetFullName())
+    else
+        InfoLabel.Text = "Selected: none (нажми SCAN)"
+    end
+end
+
+function ParseArgs(str)
+    if str == "" then return {} end
+    local func, err = load("return " .. str)
+    if not func then
+        AddLog("❌ Ошибка в аргументах: " .. err)
+        return nil
+    end
+    local success, result = pcall(func)
+    if success then
+        if type(result) ~= "table" then
+            result = {result}
+        end
+        return result
+    else
+        AddLog("❌ Ошибка выполнения: " .. tostring(result))
+        return nil
+    end
+end
+
+function AddLog(text)
+    table.insert(Logs, text)
+    if #Logs > 10 then table.remove(Logs, 1) end
+    
+    -- Обновляем список в GUI
+    for _, v in pairs(LogList:GetChildren()) do
+        if v:IsA("TextLabel") then v:Destroy() end
+    end
+    
+    local y = 0
+    for i = #Logs, 1, -1 do
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -10, 0, 20)
+        label.Position = UDim2.new(0, 5, 0, y)
+        label.BackgroundTransparency = 1
+        label.Text = Logs[i]
+        label.TextColor3 = Color3.new(0.9, 0.9, 0.9)
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 14
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = LogList
+        y = y + 20
+    end
+    LogList.CanvasSize = UDim2.new(0, 0, 0, y + 10)
+end
+
+function FireSelected()
+    if #RemoteList == 0 then
+        AddLog("❌ Сначала нажми SCAN")
+        return
+    end
+    
+    local remote = RemoteList[SelectedIndex]
+    local args = ParseArgs(ArgsBox.Text)
+    if args == nil then return end
+    
+    AddLog("🔥 Вызов " .. remote.Name .. " с аргументами: " .. ArgsBox.Text)
+    
+    local success, result = pcall(function()
+        if remote:IsA("RemoteEvent") then
+            remote:FireServer(unpack(args))
+            return "OK (нет ответа)"
+        elseif remote:IsA("RemoteFunction") then
+            return remote:InvokeServer(unpack(args))
+        end
+    end)
+    
+    if success then
+        AddLog("✅ Успешно")
+        if result and result ~= "OK (нет ответа)" then
+            local resultStr = tostring(result)
+            if #resultStr > 50 then resultStr = resultStr:sub(1,50) .. "…" end
+            AddLog("📦 Ответ: " .. resultStr)
+        end
+    else
+        AddLog("❌ Ошибка: " .. tostring(result))
+    end
+end
+
+-- Инициализация
+ScanRemotes()
+print("✅ Remote Explorer загружен. Окно должно быть видно.")
