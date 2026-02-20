@@ -1,26 +1,33 @@
 --[[
-    ТЕЛЕПОРТ НА ТОКЕН (SnowflakePart)
-    - Нажми T, чтобы мгновенно переместиться на ближайший объект SnowflakePart.
+    ПЛАВНОЕ ПЕРЕМЕЩЕНИЕ К ТОКЕНУ (SnowflakeToken)
+    - Нажми T, чтобы быстро переместиться к ближайшему токену.
+    - Движение плавное (интерполяция), а не мгновенный телепорт.
 ]]
+
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 -- НАСТРОЙКИ
 local TELEPORT_KEY = Enum.KeyCode.T
-local SEARCH_RADIUS = 1000           -- радиус поиска
-local TARGET_NAME = "SnowflakeToken"  -- точное имя токена (из вашего вывода)
+local SEARCH_RADIUS = 1000           -- радиус поиска цели
+local TARGET_NAME = "SnowflakeToken" -- точное имя токена (можно изменить)
+local MOVE_SPEED = 200               -- скорость движения (студий/сек)
 
-local function TeleportToToken()
+local isMoving = false
+local targetPosition = nil
+local moveConnection = nil
+
+-- Функция поиска ближайшего токена
+local function FindClosestToken()
     local char = LocalPlayer.Character
-    if not char then return end
+    if not char then return nil end
     local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then return end
+    if not root then return nil end
 
     local closest = nil
     local closestDist = SEARCH_RADIUS
-
-    -- Ищем все объекты с именем SnowflakePart во всём workspace
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj.Name == TARGET_NAME and obj:IsA("BasePart") then
             local dist = (obj.Position - root.Position).Magnitude
@@ -30,22 +37,79 @@ local function TeleportToToken()
             end
         end
     end
-
-    if closest then
-        -- Телепортируемся прямо в центр токена
-        root.CFrame = CFrame.new(closest.Position)
-        print("✅ Теле2424порт на", closest.Name)
-    else
-        print("❌ Токен2424 не найден в радиусе", SEARCH_RADIUS)
-    end
+    return closest
 end
 
--- Назначаем клавишу
+-- Функция остановки движения
+local function StopMoving()
+    if moveConnection then
+        moveConnection:Disconnect()
+        moveConnection = nil
+    end
+    isMoving = false
+    targetPosition = nil
+end
+
+-- Функция начала плавного движения к цели
+local function StartMoving(target)
+    if not target or not target:IsA("BasePart") then return end
+
+    -- Останавливаем предыдущее движение, если было
+    StopMoving()
+
+    targetPosition = target.Position
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    isMoving = true
+
+    moveConnection = RunService.Heartbeat:Connect(function(dt)
+        if not isMoving or not root or not targetPosition then
+            StopMoving()
+            return
+        end
+
+        local currentPos = root.Position
+        local direction = targetPosition - currentPos
+        local distance = direction.Magnitude
+
+        if distance < 1 then
+            -- Достигли цели
+            root.CFrame = CFrame.new(targetPosition)  -- финальная точная установка
+            print("✅ Достигнут токен")
+            StopMoving()
+            return
+        end
+
+        -- Двигаемся по направлению
+        local step = direction.Unit * MOVE_SPEED * dt
+        if step.Magnitude > distance then
+            root.CFrame = CFrame.new(targetPosition)
+        else
+            root.CFrame = CFrame.new(currentPos + step)
+        end
+    end)
+end
+
+-- Обработчик нажатия клавиши
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == TELEPORT_KEY then
-        TeleportToToken()
+        local target = FindClosestToken()
+        if target then
+            print("🔍 Найден токен, начинаю движение...")
+            StartMoving(target)
+        else
+            print("❌ Токен не найден в радиусе", SEARCH_RADIUS)
+        end
     end
 end)
 
-print("✅ Скрипт готов. Нажми T242424242424 для телепорта на SnowflakePart.")
+-- Сброс движения при респавне
+LocalPlayer.CharacterAdded:Connect(function()
+    StopMoving()
+end)
+
+print("✅ Скрипт плавного перемещения загружен. Нажми T для движения к токену.")
