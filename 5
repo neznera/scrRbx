@@ -1,38 +1,123 @@
 --[[
-    ТЕЛЕПОРТ ПО ПРЯМОМУ ПУТИ (Workspace.Particles.Snowflakes.SnowflakePart)
-    - Нажми T, чтобы переместиться на объект по указанному пути.
+    ТЕЛЕПОРТ НА ОБЪЕКТ ПОД КУРСОРОМ (по нажатию T)
+    - Объект подсвечивается белым.
+    - Нажми T, чтобы мгновенно переместиться внутрь объекта (на его позицию).
+    - Нажми левую кнопку мыши, чтобы вывести информацию об объекте (имя, путь, расстояние).
 ]]
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-Local LocalPlayer = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
--- НАСТРОЙКИ
-local TELEPORT_KEY = Enum.KeyCode.T
--- Указываем полный путь к цели (можно менять)
-local TARGET_PATH = workspace.Particles.Snowflakes.SnowflakePart
+local currentHighlight = nil
+local lastTarget = nil
 
-local function TeleportToTarget()
-    local char = LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then return end
-
-    -- Проверяем, существует ли объект по указанному пути
-    if TARGET_PATH and TARGET_PATH:IsA("BasePart") then
-        -- Телепортируемся прямо в центр объекта
-        root.CFrame = CFrame.new(TARGET_PATH.Position)
-        print("✅ Телепорт на", TARGET_PATH:GetFullName())
-    else
-        print("❌ Объект по пути не найден или это не BasePart.")
+-- Функция подсветки объекта
+local function highlightObject(obj)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    if obj then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = obj
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = game:GetService("CoreGui")
+        currentHighlight = highlight
     end
 end
 
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == TELEPORT_KEY then
-        TeleportToTarget()
+-- Функция получения позиции объекта (для телепорта)
+local function getObjectPosition(obj)
+    if obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Model") then
+        if obj.PrimaryPart then
+            return obj.PrimaryPart.Position
+        else
+            -- Пытаемся получить позицию через GetBoundingBox
+            local success, cframe = pcall(function()
+                return obj:GetBoundingBox()
+            end)
+            if success then
+                return cframe.Position
+            end
+        end
+    end
+    return nil
+end
+
+-- Функция телепортации
+local function teleportToTarget()
+    local target = lastTarget
+    if not target then
+        print("❌ Нет объекта под курсором.")
+        return
+    end
+
+    local char = LocalPlayer.Character
+    if not char then
+        print("❌ Персонаж не найден.")
+        return
+    end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then
+        print("❌ Корневая часть не найдена.")
+        return
+    end
+
+    local pos = getObjectPosition(target)
+    if pos then
+        -- Телепортируемся на позицию объекта (можно добавить смещение по Y, если нужно)
+        root.CFrame = CFrame.new(pos)
+        print("✅ Телепорт на " .. target.Name .. " (" .. target:GetFullName() .. ")")
+    else
+        print("❌ Не удалось определить позицию объекта.")
+    end
+end
+
+-- Отслеживание объекта под курсором
+RunService.RenderStepped:Connect(function()
+    local target = Mouse.Target
+    if target ~= lastTarget then
+        lastTarget = target
+        highlightObject(target)
     end
 end)
 
-print("✅ Скрипт готов. Нажми T для телепорта на", TARGET_PATH:GetFullName())
+-- Обработка клавиши T для телепортации
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.T then
+        teleportToTarget()
+    end
+end)
+
+-- Обработка левого клика для информации
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local target = lastTarget
+        if target then
+            local char = LocalPlayer.Character
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+            local dist = root and (target:IsA("BasePart") and (target.Position - root.Position).Magnitude or "неизвестно") or "неизвестно"
+            print("--- ИНФОРМАЦИЯ ОБ ОБЪЕКТЕ ---")
+            print("Имя: " .. target.Name)
+            print("Класс: " .. target.ClassName)
+            print("Полный путь: " .. target:GetFullName())
+            print("Расстояние: " .. (type(dist) == "number" and string.format("%.1f stud", dist) or dist))
+            print("------------------------------")
+        else
+            print("Под курсором нет объекта.")
+        end
+    end
+end)
+
+print("✅ Скрипт загружен. Наводись на объект (подсветка), нажми T для телепорта, левая кнопка для информации.")
