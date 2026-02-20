@@ -1,0 +1,330 @@
+--[[
+    ⚡ BEE SWARM CHEAT HUB ⚡
+    Функции:
+    - Infinite Energy
+    - Auto Complete Quest (мгновенно завершает текущий квест)
+    - Super Gather (собирает пыльцу с огромного радиуса)
+    - Spawn Loot (спавнит случайный лут рядом с вами)
+    - Teleport to Mobs
+    - Unlock All Guards (обход покупки стражи)
+    
+    ВНИМАНИЕ: Эти функции с высокой вероятностью приведут к бану!
+    Только для альт-аккаунтов.
+]]
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- Защита GUI
+if syn and syn.protect_gui then syn.protect_gui(CoreGui) elseif protect_gui then protect_gui(CoreGui) end
+
+-- ========== НАСТРОЙКИ ==========
+local Settings = {
+    InfiniteEnergy = false,
+    AutoQuest = false,
+    SuperGather = false,
+    SuperGatherRadius = 200,
+    SpawnLootKey = Enum.KeyCode.L,
+    TeleportMobsKey = Enum.KeyCode.K,
+    UnlockGuardsKey = Enum.KeyCode.G,
+}
+
+-- ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+local function getPlayerData()
+    -- Попытка найти объект игровых данных (разные версии)
+    local plr = LocalPlayer
+    local data = plr:FindFirstChild("Data") or plr:FindFirstChild("PlayerData") or plr:FindFirstChild("Stats")
+    return data
+end
+
+local function getQuestData()
+    local data = getPlayerData()
+    if data then
+        return data:FindFirstChild("Quests") or data:FindFirstChild("QuestData")
+    end
+    return nil
+end
+
+-- ========== 1. INFINITE ENERGY ==========
+local function setInfiniteEnergy()
+    if not Settings.InfiniteEnergy then return end
+    local data = getPlayerData()
+    if data then
+        -- В разных версиях игры энергия может называться по-разному
+        local energy = data:FindFirstChild("Energy") or data:FindFirstChild("Stamina") or data:FindFirstChild("Power")
+        if energy and energy:IsA("NumberValue") then
+            energy.Value = 999999
+        end
+    end
+end
+
+-- ========== 2. AUTO COMPLETE QUEST ==========
+local function completeCurrentQuest()
+    local questData = getQuestData()
+    if questData then
+        -- Пытаемся найти текущий квест и установить его прогресс на максимум
+        for _, v in pairs(questData:GetChildren()) do
+            if v:IsA("NumberValue") and v.Name:find("Progress") then
+                v.Value = 999999
+            elseif v:IsA("StringValue") and v.Name:find("Quest") then
+                -- Можно также попытаться завершить через RemoteEvent
+                local completeEvent = questData:FindFirstChild("CompleteQuest") or questData:FindFirstChild("Claim")
+                if completeEvent and completeEvent:IsA("RemoteEvent") then
+                    completeEvent:FireServer()
+                end
+            end
+        end
+        print("✅ Квест завершён (попытка)")
+    end
+end
+
+-- ========== 3. SUPER GATHER (сбор пыльцы с огромного радиуса) ==========
+local function superGather()
+    if not Settings.SuperGather then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    local pos = root.Position
+    for _, obj in pairs(workspace:GetDescendants()) do
+        -- Собираем всё, что похоже на пыльцу (можно настроить)
+        if obj:IsA("BasePart") and (obj.Name:find("Pollen") or obj.Name:find("Token")) then
+            local dist = (obj.Position - pos).Magnitude
+            if dist <= Settings.SuperGatherRadius then
+                -- Телепортируем объект к игроку
+                obj.CFrame = CFrame.new(pos)
+                -- Или сразу вызываем сбор, если есть RemoteEvent
+                local collectEvent = obj:FindFirstChild("Collect") or obj:FindFirstChild("OnCollect")
+                if collectEvent and collectEvent:IsA("RemoteEvent") then
+                    collectEvent:FireServer()
+                end
+            end
+        end
+    end
+end
+
+-- ========== 4. SPAWN LOOT (спавнит предметы рядом) ==========
+local function spawnLoot()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    -- Пытаемся вызвать спавн лута (это может быть через RemoteEvent)
+    local lootFolder = workspace:FindFirstChild("LootFolder") or workspace:FindFirstChild("DroppedItems")
+    if lootFolder then
+        -- Создаём копию случайного лута (например, яйцо)
+        local egg = lootFolder:FindFirstChild("Egg") or lootFolder:FindFirstChild("Treat") or lootFolder:FindFirstChild("Ticket")
+        if egg then
+            local new = egg:Clone()
+            new.CFrame = CFrame.new(root.Position + Vector3.new(0, 3, 0))
+            new.Parent = workspace
+            print("🥚 Предмет создан!")
+        end
+    else
+        -- Альтернативный способ: через удалённый вызов
+        local remote = game:GetService("ReplicatedStorage"):FindFirstChild("SpawnItem")
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Egg", root.Position)
+        end
+    end
+end
+
+-- ========== 5. TELEPORT TO MOBS ==========
+local function teleportToNearestMob()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    local nearest = nil
+    local minDist = math.huge
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then
+            local hum = obj:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 and not Players:GetPlayerFromCharacter(obj) then
+                local mobRoot = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso")
+                if mobRoot then
+                    local dist = (mobRoot.Position - root.Position).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        nearest = mobRoot
+                    end
+                end
+            end
+        end
+    end
+
+    if nearest then
+        root.CFrame = CFrame.new(nearest.Position + Vector3.new(0, 5, 0))
+        print("👾 Телепорт к мобу!")
+    end
+end
+
+-- ========== 6. UNLOCK ALL GUARDS (обход покупки) ==========
+local function unlockGuards()
+    local data = getPlayerData()
+    if data then
+        local guards = data:FindFirstChild("Guards") or data:FindFirstChild("ShopGuards")
+        if guards then
+            for _, guard in pairs(guards:GetChildren()) do
+                if guard:IsA("BoolValue") then
+                    guard.Value = true
+                elseif guard:IsA("NumberValue") then
+                    guard.Value = 1
+                end
+            end
+            print("🛡️ Стража разблокирована (попытка)")
+        end
+    end
+end
+
+-- ========== УПРАВЛЕНИЕ КЛАВИШАМИ ==========
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Settings.SpawnLootKey then
+        spawnLoot()
+    elseif input.KeyCode == Settings.TeleportMobsKey then
+        teleportToNearestMob()
+    elseif input.KeyCode == Settings.UnlockGuardsKey then
+        unlockGuards()
+    end
+end)
+
+-- ========== ГЛАВНЫЙ ЦИКЛ ==========
+RunService.Heartbeat:Connect(function()
+    if Settings.InfiniteEnergy then
+        setInfiniteEnergy()
+    end
+    if Settings.AutoQuest then
+        completeCurrentQuest()
+    end
+    if Settings.SuperGather then
+        superGather()
+    end
+end)
+
+-- ========== МЕНЮ (DRAWING) ==========
+local function CreateMenu()
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Color = Color3.fromRGB(30,30,40)
+    bg.Transparency = 0.9
+    bg.Size = Vector2.new(320, 300)
+    bg.Position = Vector2.new(50, 50)
+    bg.Filled = true
+    bg.ZIndex = 999
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Color = Color3.fromRGB(255,255,0)
+    title.Position = Vector2.new(60,55)
+    title.Text = "⚡ CHEAT HUB BSS"
+    title.Size = 20
+    title.ZIndex = 1000
+
+    local closeBtn = Drawing.new("Text")
+    closeBtn.Visible = true
+    closeBtn.Color = Color3.new(1,0,0)
+    closeBtn.Position = Vector2.new(350,55)
+    closeBtn.Text = "X"
+    closeBtn.Size = 20
+    closeBtn.ZIndex = 1000
+
+    local items = {}
+    local yPos = 85
+    local function AddCheckbox(text, getter, setter)
+        local box = Drawing.new("Square")
+        box.Visible = true
+        box.Color = getter() and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+        box.Size = Vector2.new(12,12)
+        box.Position = Vector2.new(60, yPos)
+        box.Filled = true
+        box.ZIndex = 1000
+
+        local lbl = Drawing.new("Text")
+        lbl.Visible = true
+        lbl.Color = Color3.new(1,1,1)
+        lbl.Position = Vector2.new(80, yPos-2)
+        lbl.Text = text
+        lbl.Size = 14
+        lbl.ZIndex = 1000
+
+        table.insert(items, {box=box, lbl=lbl, y=yPos, set=setter, get=getter})
+        yPos = yPos + 25
+    end
+
+    AddCheckbox("∞ Energy", 
+        function() return Settings.InfiniteEnergy end,
+        function(v) Settings.InfiniteEnergy = v end)
+
+    AddCheckbox("Auto Complete Quest", 
+        function() return Settings.AutoQuest end,
+        function(v) Settings.AutoQuest = v end)
+
+    AddCheckbox("Super Gather (опасно!)", 
+        function() return Settings.SuperGather end,
+        function(v) Settings.SuperGather = v end)
+
+    yPos = yPos + 5
+    local info1 = Drawing.new("Text")
+    info1.Visible = true
+    info1.Color = Color3.new(1,1,1)
+    info1.Position = Vector2.new(60, yPos)
+    info1.Text = "L - Spawn Loot"
+    info1.Size = 14
+    yPos = yPos + 20
+
+    local info2 = Drawing.new("Text")
+    info2.Visible = true
+    info2.Color = Color3.new(1,1,1)
+    info2.Position = Vector2.new(60, yPos)
+    info2.Text = "K - Teleport to Mob"
+    info2.Size = 14
+    yPos = yPos + 20
+
+    local info3 = Drawing.new("Text")
+    info3.Visible = true
+    info3.Color = Color3.new(1,1,1)
+    info3.Position = Vector2.new(60, yPos)
+    info3.Text = "G - Unlock Guards"
+    info3.Size = 14
+    yPos = yPos + 20
+
+    -- Обработка кликов
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local m = UserInputService:GetMouseLocation()
+            if m.X >= 50 and m.X <= 370 and m.Y >= 50 and m.Y <= 300 then
+                for _, item in ipairs(items) do
+                    if m.X >= 60 and m.X <= 72 and m.Y >= item.y-6 and m.Y <= item.y+6 then
+                        local new = not item.get()
+                        item.set(new)
+                        item.box.Color = new and Color3.fromRGB(0,255,0) or Color3.fromRGB(80,80,80)
+                    end
+                end
+            end
+            if m.X >= 350 and m.X <= 370 and m.Y >= 55 and m.Y <= 75 then
+                -- Закрыть меню
+                bg.Visible = false
+                title.Visible = false
+                closeBtn.Visible = false
+                info1.Visible = false
+                info2.Visible = false
+                info3.Visible = false
+                for _, item in ipairs(items) do
+                    item.box.Visible = false
+                    item.lbl.Visible = false
+                end
+            end
+        end
+    end)
+end
+
+CreateMenu()
+print("⚠️ CHEAT HUB загружен. Используйте на свой страх и риск! Меню слева вверху.")
