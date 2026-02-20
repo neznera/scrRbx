@@ -1,0 +1,51 @@
+--[[
+    ТЕЛЕПОРТ НА ТОКЕН (SnowflakePart)
+    - Нажми T, чтобы мгновенно переместиться на ближайший объект SnowflakePart.
+]]
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- НАСТРОЙКИ
+local TELEPORT_KEY = Enum.KeyCode.T
+local SEARCH_RADIUS = 1000           -- радиус поиска
+local TARGET_NAME = "SnowflakePart"  -- точное имя токена (из вашего вывода)
+
+local function TeleportToToken()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return end
+
+    local closest = nil
+    local closestDist = SEARCH_RADIUS
+
+    -- Ищем все объекты с именем SnowflakePart во всём workspace
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj.Name == TARGET_NAME and obj:IsA("BasePart") then
+            local dist = (obj.Position - root.Position).Magnitude
+            if dist < closestDist then
+                closestDist = dist
+                closest = obj
+            end
+        end
+    end
+
+    if closest then
+        -- Телепортируемся прямо в центр токена
+        root.CFrame = CFrame.new(closest.Position)
+        print("✅ Телепорт на", closest.Name)
+    else
+        print("❌ Токен не найден в радиусе", SEARCH_RADIUS)
+    end
+end
+
+-- Назначаем клавишу
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == TELEPORT_KEY then
+        TeleportToToken()
+    end
+end)
+
+print("✅ Скрипт готов. Нажми T для телепорта на SnowflakePart.")
