@@ -1,123 +1,55 @@
 --[[
-    ТЕЛЕПОРТ НА ОБЪЕКТ ПОД КУРСОРОМ (по нажатию T)
-    - Объект подсвечивается белым.
-    - Нажми T, чтобы мгновенно переместиться внутрь объекта (на его позицию).
-    - Нажми левую кнопку мыши, чтобы вывести информацию об объекте (имя, путь, расстояние).
+    АВТОМАТИЧЕСКАЯ ТЕЛЕПОРТАЦИЯ НА ТОКЕНЫ (ИМЯ "C")
+    - Постоянно ищет ближайший объект с именем "C".
+    - Мгновенно телепортирует персонажа прямо в центр объекта.
+    - Работает без остановки, пока скрипт запущен.
+    - Для остановки просто закройте игру или удалите скрипт.
 ]]
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 
-local currentHighlight = nil
-local lastTarget = nil
+-- НАСТРОЙКИ
+local TARGET_NAME = "C"                     -- имя токена (как у вас)
+local TELEPORT_OFFSET = Vector3.new(0, 0, 0) -- можно добавить смещение, если надо
 
--- Функция подсветки объекта
-local function highlightObject(obj)
-    if currentHighlight then
-        currentHighlight:Destroy()
-        currentHighlight = nil
-    end
-    if obj then
-        local highlight = Instance.new("Highlight")
-        highlight.Adornee = obj
-        highlight.FillColor = Color3.fromRGB(255, 255, 255)
-        highlight.FillTransparency = 0.5
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        highlight.OutlineTransparency = 0
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        highlight.Parent = game:GetService("CoreGui")
-        currentHighlight = highlight
-    end
-end
+-- Функция поиска ближайшего объекта с нужным именем
+local function getClosestTarget()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+    if not root then return nil end
+    local myPos = root.Position
 
--- Функция получения позиции объекта (для телепорта)
-local function getObjectPosition(obj)
-    if obj:IsA("BasePart") then
-        return obj.Position
-    elseif obj:IsA("Model") then
-        if obj.PrimaryPart then
-            return obj.PrimaryPart.Position
-        else
-            -- Пытаемся получить позицию через GetBoundingBox
-            local success, cframe = pcall(function()
-                return obj:GetBoundingBox()
-            end)
-            if success then
-                return cframe.Position
+    local closestObj = nil
+    local closestDist = math.huge
+
+    -- Перебираем все объекты в workspace
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name == TARGET_NAME then
+            local dist = (obj.Position - myPos).Magnitude
+            if dist < closestDist then
+                closestDist = dist
+                closestObj = obj
             end
         end
     end
-    return nil
+    return closestObj
 end
 
--- Функция телепортации
-local function teleportToTarget()
-    local target = lastTarget
-    if not target then
-        print("❌ Нет объекта под курсором.")
-        return
-    end
-
-    local char = LocalPlayer.Character
-    if not char then
-        print("❌ Персонаж не найден.")
-        return
-    end
-    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    if not root then
-        print("❌ Корневая часть не найдена.")
-        return
-    end
-
-    local pos = getObjectPosition(target)
-    if pos then
-        -- Телепортируемся на позицию объекта (можно добавить смещение по Y, если нужно)
-        root.CFrame = CFrame.new(pos)
-        print("✅ Телепорт на " .. target.Name .. " (" .. target:GetFullName() .. ")")
-    else
-        print("❌ Не удалось определить позицию объекта.")
-    end
-end
-
--- Отслеживание объекта под курсором
-RunService.RenderStepped:Connect(function()
-    local target = Mouse.Target
-    if target ~= lastTarget then
-        lastTarget = target
-        highlightObject(target)
-    end
-end)
-
--- Обработка клавиши T для телепортации
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.T then
-        teleportToTarget()
-    end
-end)
-
--- Обработка левого клика для информации
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        local target = lastTarget
-        if target then
-            local char = LocalPlayer.Character
-            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
-            local dist = root and (target:IsA("BasePart") and (target.Position - root.Position).Magnitude or "неизвестно") or "неизвестно"
-            print("--- ИНФОРМАЦИЯ ОБ ОБЪЕКТЕ ---")
-            print("Имя: " .. target.Name)
-            print("Класс: " .. target.ClassName)
-            print("Полный путь: " .. target:GetFullName())
-            print("Расстояние: " .. (type(dist) == "number" and string.format("%.1f stud", dist) or dist))
-            print("------------------------------")
-        else
-            print("Под курсором нет объекта.")
+-- Главный цикл телепортации
+while true do
+    local target = getClosestTarget()
+    if target then
+        local char = LocalPlayer.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+            if root then
+                -- Мгновенное перемещение в центр токена
+                root.CFrame = CFrame.new(target.Position + TELEPORT_OFFSET)
+            end
         end
     end
-end)
-
-print("✅ Скрипт загружен. Наводись на объект (подсветка), нажми T для телепорта, левая кнопка для информации.")
+    -- Небольшая задержка, чтобы не нагружать процессор (можно убрать, но тогда нагрузка будет 100%)
+    task.wait()
+end
